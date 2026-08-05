@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+
+  /* Brand tokens -- defaults are AKPA's own colors, taken from the real
+     logo (Amazin Kids Paradise Academy). Licensed tenants override these at
+     runtime via lib/tenant/theme.ts (from tenants.primary_color /
+     tenants.accent_color), not by editing this file. */
+  --brand-primary: #e30c7b; /* AKPA pink */
+  --brand-accent: #3cc0d8; /* AKPA cyan */
+  --brand-ink: #0a0a0d; /* near-black, brand/marketing surfaces only */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-accent: var(--brand-accent);
+  --color-brand-ink: var(--brand-ink);
+  --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Working app screens intentionally stay light regardless of OS theme --
+   the dark/gold "university" treatment is reserved for brand surfaces
+   (auth pages, sidebar shell), not toggled by prefers-color-scheme. */
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+}
