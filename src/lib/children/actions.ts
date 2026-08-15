@@ -70,6 +70,7 @@ export async function updateChild(formData: FormData) {
       funding_type: (str(formData, "fundingType") ?? "private") as FundingType,
       schedule: (str(formData, "schedule") ?? "full_time") as ChildSchedule,
       weekly_rate: num(formData, "weeklyRate"),
+      subsidy_weekly_amount: num(formData, "subsidyWeeklyAmount"),
       rate_note: str(formData, "rateNote"),
       cadence: (str(formData, "cadence") ?? "weekly") as BillingCadence,
       start_date: str(formData, "startDate"),

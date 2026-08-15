@@ -1,11 +1,18 @@
-import { requireRole } from "@/lib/auth/dal";
+import Link from "next/link";
+
+import { verifySession } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
 import { createChild } from "@/lib/children/actions";
 import { CADENCE_LABELS, FUNDING_TYPE_LABELS, SCHEDULE_LABELS } from "@/lib/children/labels";
 import { ChildrenTable, type ChildRow } from "@/components/children/children-table";
 
 export default async function ChildrenPage() {
-  const session = await requireRole(["director", "platform_admin"]);
+  const session = await verifySession();
+
+  if (session.profile.role === "staff") {
+    return <StaffChildrenList tenantId={session.profile.tenantId} />;
+  }
+
   const supabase = await createClient();
 
   const [{ data: children }, { data: locations }, { data: guardianLinks }] = await Promise.all([
@@ -179,6 +186,72 @@ export default async function ChildrenPage() {
           </button>
         </form>
       </details>
+    </div>
+  );
+}
+
+// Staff get a minimal, non-filterable roster -- name, classroom, and whether
+// the family is behind on payment. No rates, funding type, or guardians;
+// child_balance_status is the only billing surface staff can read.
+async function StaffChildrenList({ tenantId }: { tenantId: string }) {
+  const supabase = await createClient();
+
+  const [{ data: children }, { data: balanceRows }] = await Promise.all([
+    supabase
+      .from("children")
+      .select("id, full_name, classroom, locations(name)")
+      .eq("tenant_id", tenantId)
+      .order("full_name"),
+    supabase.from("child_balance_status").select("child_id, balance_status").eq("tenant_id", tenantId),
+  ]);
+
+  const balanceByChild = new Map((balanceRows ?? []).map((b) => [b.child_id, b.balance_status]));
+
+  const rows = (children ?? []).map((c) => {
+    const location = Array.isArray(c.locations) ? c.locations[0] : c.locations;
+    return {
+      id: c.id,
+      name: c.full_name,
+      classroom: c.classroom,
+      locationName: location?.name ?? "Unassigned",
+      overdue: balanceByChild.get(c.id) === "overdue",
+    };
+  });
+
+  return (
+    <div className="max-w-[720px]">
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div className="border-b border-gray-100 px-4.5 py-3.5">
+          <h1 className="font-serif text-[14.5px] font-semibold text-gray-900">Children</h1>
+        </div>
+        <ul className="divide-y divide-gray-100">
+          {rows.map((r) => (
+            <li key={r.id}>
+              <Link
+                href={`/children/${r.id}`}
+                className="flex items-center justify-between gap-3 px-4.5 py-3 hover:bg-gray-50"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-[13.5px] font-semibold text-gray-900">{r.name}</div>
+                  <div className="truncate text-[11.5px] text-gray-400">
+                    {r.classroom || "No classroom"} &middot; {r.locationName}
+                  </div>
+                </div>
+                <span
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-[10.5px] font-bold tracking-[.07em] uppercase ${
+                    r.overdue ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"
+                  }`}
+                >
+                  {r.overdue ? "Overdue" : "Current"}
+                </span>
+              </Link>
+            </li>
+          ))}
+          {rows.length === 0 && (
+            <li className="px-4.5 py-6 text-center text-sm text-gray-500">No children on file.</li>
+          )}
+        </ul>
+      </div>
     </div>
   );
 }

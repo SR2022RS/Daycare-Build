@@ -9,6 +9,8 @@ import {
   UserCircle,
   ShieldAlert,
   BookMarked,
+  LifeBuoy,
+  Receipt,
 } from "lucide-react";
 
 import type { AppRole } from "@/types/database.types";
@@ -30,6 +32,13 @@ export function getNavSections(role: AppRole): NavSection[] {
         items: [{ title: "Children & guardians", href: "/children", icon: Baby }],
       },
       {
+        label: "Billing",
+        items: [
+          { title: "Invoices", href: "/billing", icon: Receipt },
+          { title: "Revenue", href: "/billing/revenue", icon: LayoutDashboard },
+        ],
+      },
+      {
         label: "Safety",
         items: [{ title: "Incident reports", href: "/incidents", icon: ShieldAlert }],
       },
@@ -45,6 +54,7 @@ export function getNavSections(role: AppRole): NavSection[] {
         label: "System",
         items: [
           { title: "My profile", href: "/profile", icon: UserCircle },
+          { title: "Get Help", href: "/support", icon: LifeBuoy },
           { title: "Settings", href: "/settings", icon: Settings },
         ],
       },
@@ -59,6 +69,7 @@ export function getNavSections(role: AppRole): NavSection[] {
         { title: "My coursework", href: "/training", icon: BookOpen },
         { title: "Time clock", href: "/attendance", icon: Calendar },
         { title: "Incident reports", href: "/incidents", icon: ShieldAlert },
+        { title: "Children", href: "/children", icon: Baby },
       ],
     },
     {
@@ -67,6 +78,7 @@ export function getNavSections(role: AppRole): NavSection[] {
         { title: "Policies library", href: "/policies", icon: FileText },
         { title: "SOPs", href: "/sops", icon: BookMarked },
         { title: "My profile", href: "/profile", icon: UserCircle },
+        { title: "Get Help", href: "/support", icon: LifeBuoy },
       ],
     },
   ];

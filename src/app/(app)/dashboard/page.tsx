@@ -9,6 +9,7 @@ import {
   BookOpen,
   FileText,
   Megaphone,
+  HandCoins,
 } from "lucide-react";
 
 import { verifySession } from "@/lib/auth/dal";
@@ -19,6 +20,7 @@ import {
   getNotClearedList,
 } from "@/lib/staff/credentials";
 import { getNextClosure } from "@/lib/calendar/next-closure";
+import { getOutstandingTotal } from "@/lib/billing/queries";
 import { StatTile } from "@/components/ui/stat-tile";
 import { clockIn, clockOut } from "@/lib/attendance/actions";
 import { formatMinutes, getMonday, getTimecard } from "@/lib/attendance/timecard";
@@ -50,6 +52,7 @@ export default async function DashboardPage() {
     notCleared,
     expiring,
     nextClosure,
+    outstanding,
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -69,6 +72,7 @@ export default async function DashboardPage() {
     getNotClearedList(supabase, session.profile.tenantId),
     getExpiringCredentialsList(supabase, session.profile.tenantId, 60),
     getNextClosure(supabase, session.profile.tenantId),
+    getOutstandingTotal(supabase, session.profile.tenantId),
   ]);
 
   const totalProgress = progressRows?.length ?? 0;
@@ -106,6 +110,12 @@ export default async function DashboardPage() {
           value={String(expiring.length)}
           icon={ClockAlert}
           tone={expiring.length > 0 ? "warning" : "default"}
+        />
+        <StatTile
+          label="Outstanding balance"
+          value={`$${outstanding.total.toFixed(2)}`}
+          icon={HandCoins}
+          tone={outstanding.overdueCount > 0 ? "warning" : "default"}
         />
       </div>
 
