@@ -2,9 +2,15 @@
 -- Builds on 20260814120000_billing_engine.sql (charges, invoices) and
 -- 20260814120100_billing_generation.sql (charge generation).
 
--- Staff-safe balance signal: status only, never amounts. security_invoker
--- makes the view run under the caller's RLS, so the policy below is what
--- actually grants staff access -- the underlying tables stay director-only.
+-- Staff-safe balance signal: status only, never amounts. security_invoker =
+-- false makes the view run with its owner's rights, bypassing RLS on
+-- children/charges/invoices entirely -- views cannot carry RLS policies of
+-- their own. What actually scopes this view to the caller's tenant is the
+-- `where c.tenant_id = public.current_tenant_id()` filter below;
+-- current_tenant_id() reads auth.uid(), so it still resolves correctly
+-- under owner rights. Without that filter, any authenticated user could
+-- select every child_id/tenant_id/balance_status across every tenant in
+-- the database.
 create view public.child_balance_status
 with (security_invoker = false)
 as
@@ -23,7 +29,8 @@ select
     ) then 'overdue'
     else 'current'
   end as balance_status
-from public.children c;
+from public.children c
+where c.tenant_id = public.current_tenant_id();
 
 alter view public.child_balance_status set (security_barrier = true);
 

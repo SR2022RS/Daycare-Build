@@ -54,7 +54,15 @@ create table public.charges (
   created_by uuid references public.profiles (id) on delete set null,
   void boolean not null default false,
   voided_at timestamptz,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Credits legitimately carry a negative parent_amount (they reduce what's
+  -- owed), so this is scoped to tuition only: a data-entry error where
+  -- subsidy_weekly_amount exceeds weekly_rate must not be able to push a
+  -- tuition charge's parent_amount negative and silently shrink a family's
+  -- invoice. generate_recurring_charges also clamps this defensively; this
+  -- constraint is the backstop for any other insert path.
+  constraint charges_tuition_parent_amount_non_negative
+    check (type <> 'tuition' or parent_amount >= 0)
 );
 
 create index charges_tenant_id_idx on public.charges (tenant_id);

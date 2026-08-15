@@ -30,7 +30,13 @@ begin
     return;
   end if;
 
-  if v_paid <= 0 then
+  -- A fully-credited invoice (total <= 0) is settled regardless of amount
+  -- paid. Checking this first matters: v_paid <= 0 also holds when nothing
+  -- has been paid, and without this branch that case would win and leave
+  -- the invoice at 'open' forever even though nothing is owed.
+  if v_total <= 0 then
+    v_status := 'paid';
+  elsif v_paid <= 0 then
     v_status := 'open';
   elsif v_paid < v_total then
     v_status := 'partial';
@@ -44,11 +50,28 @@ begin
 end;
 $$;
 
+-- security definer + rewrites total_amount/amount_paid/status on an
+-- arbitrary invoice_id -- Postgres grants EXECUTE to PUBLIC by default,
+-- which PostgREST would otherwise expose as a callable RPC. This is only
+-- ever meant to run internally (from generate_recurring_charges_impl below,
+-- and future payment-recording code), so no role gets it back.
+revoke all on function public.recalc_invoice_totals(uuid) from public;
+
 -- Generates one tuition charge per active child whose cadence period starts
 -- on p_on, attaches it to the payer guardian's invoice for that period
 -- (creating the invoice if needed), and prorates the child's first period.
 -- Idempotent: the charges_tuition_period_key index makes re-runs no-ops.
-create or replace function public.generate_recurring_charges(
+--
+-- Split into an internal implementation (this function, iterates a single
+-- tenant with no auth check of its own) and a director-facing wrapper
+-- (below, enforces the tenant/role guard) rather than one function with a
+-- "p_internal" flag parameter. A flag parameter would still be reachable by
+-- any authenticated caller through PostgREST's RPC endpoint -- they would
+-- just pass {"p_internal": true} in the request body -- because the only
+-- boundary Postgres actually enforces is the GRANT system, not which
+-- argument values a caller chooses to send. So the guard-bypassing code
+-- path lives in a function `authenticated` is never granted EXECUTE on.
+create or replace function public.generate_recurring_charges_impl(
   p_tenant_id uuid,
   p_on date
 )
@@ -72,6 +95,7 @@ declare
   v_period_rate numeric(10, 2);
   v_guardian_id uuid;
   v_invoice_id uuid;
+  v_new_invoice boolean;
   v_created integer := 0;
 begin
   -- Period boundaries per cadence, mirroring src/lib/billing/periods.ts.
@@ -142,7 +166,15 @@ begin
     else
       v_subsidy := coalesce(round(
         (v_child.subsidy_weekly_amount * (v_period_rate / nullif(v_child.weekly_rate, 0))) * v_fraction, 2), 0);
-      v_parent := round(v_period_rate * v_fraction, 2) - v_subsidy;
+      -- subsidy_weekly_amount carries no check against weekly_rate, so a
+      -- data-entry error (subsidy > rate) must not push parent_amount
+      -- negative and silently shrink the family's invoice. Clamp subsidy to
+      -- the period amount so subsidy_amount + parent_amount always sums to
+      -- the period total, and parent_amount never goes below 0. The
+      -- charges_tuition_parent_amount_non_negative constraint backstops
+      -- this for any other insert path.
+      v_subsidy := least(v_subsidy, round(v_period_rate * v_fraction, 2));
+      v_parent := greatest(round(v_period_rate * v_fraction, 2) - v_subsidy, 0);
     end if;
 
     -- The payer guardian groups the invoice. Skip children with no payer set.
@@ -153,16 +185,25 @@ begin
 
     continue when v_guardian_id is null;
 
-    -- Reuse this guardian's invoice for the period, or open one.
+    -- Reuse this guardian's invoice for the period, or open one. tenant_id
+    -- is redundant with guardian_id (a guardian belongs to one tenant) but
+    -- scoped here anyway for defense in depth.
     select i.id into v_invoice_id
     from public.invoices i
-    where i.guardian_id = v_guardian_id
+    where i.tenant_id = p_tenant_id
+      and i.guardian_id = v_guardian_id
       and i.period_start = v_period_start
       and i.period_end = v_period_end
       and i.status <> 'void'
     limit 1;
 
+    v_new_invoice := false;
+
     if v_invoice_id is null then
+      -- on conflict guards against a concurrent cron run and a director's
+      -- "Generate now" click racing to open the same guardian+period
+      -- invoice, which would otherwise hit invoices_guardian_period_key and
+      -- abort the whole generation run for every remaining child.
       insert into public.invoices (
         tenant_id, location_id, guardian_id, period_start, period_end, due_date
       )
@@ -170,7 +211,23 @@ begin
         p_tenant_id, v_child.location_id, v_guardian_id, v_period_start, v_period_end,
         v_period_start + 7
       )
+      on conflict (guardian_id, period_start, period_end) where status <> 'void'
+      do nothing
       returning id into v_invoice_id;
+
+      if v_invoice_id is null then
+        -- Lost the race; pick up the invoice the concurrent run created.
+        select i.id into v_invoice_id
+        from public.invoices i
+        where i.tenant_id = p_tenant_id
+          and i.guardian_id = v_guardian_id
+          and i.period_start = v_period_start
+          and i.period_end = v_period_end
+          and i.status <> 'void'
+        limit 1;
+      else
+        v_new_invoice := true;
+      end if;
     end if;
 
     begin
@@ -186,28 +243,70 @@ begin
       );
       v_created := v_created + 1;
     exception when unique_violation then
-      -- Already charged for this period; leave it alone.
-      null;
+      -- Already charged for this period -- e.g. this guardian's invoice for
+      -- the period was voided and a fresh one just opened above, but the
+      -- tuition charge itself was never voided, so
+      -- charges_tuition_period_key still blocks re-insertion. Leave the
+      -- existing charge alone, and if we just opened a brand-new invoice
+      -- for this attempt, delete it so it doesn't linger as an empty,
+      -- perpetually-regenerated $0 open invoice.
+      if v_new_invoice then
+        delete from public.invoices where id = v_invoice_id;
+        v_invoice_id := null;
+      end if;
     end;
 
-    perform public.recalc_invoice_totals(v_invoice_id);
+    if v_invoice_id is not null then
+      perform public.recalc_invoice_totals(v_invoice_id);
+    end if;
   end loop;
 
   return v_created;
 end;
 $$;
 
--- Directors trigger this through a server action; the cron job below calls it
--- for every tenant. revoke/grant keeps it callable only by authenticated users
--- (RLS still governs what the function's own queries can see).
+-- Internal only: never grant EXECUTE to authenticated (see the comment
+-- above the function). Its owner -- this migration's role, which also owns
+-- the wrapper below and run_daily_billing -- can still call it, because
+-- security definer functions execute with their owner's privileges
+-- regardless of grants.
+revoke all on function public.generate_recurring_charges_impl(uuid, date) from public;
+
+-- Director-facing entry point: enforces "you may only generate charges for
+-- your own tenant, and only if you're a director/platform_admin" before
+-- delegating to the real implementation. This is the function the app's
+-- .rpc('generate_recurring_charges', { p_tenant_id, p_on }) call reaches.
+create or replace function public.generate_recurring_charges(
+  p_tenant_id uuid,
+  p_on date
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_tenant_id is distinct from public.current_tenant_id()
+     or public.current_role() not in ('director', 'platform_admin') then
+    raise exception 'not authorized to generate charges for tenant %', p_tenant_id;
+  end if;
+
+  return public.generate_recurring_charges_impl(p_tenant_id, p_on);
+end;
+$$;
+
 revoke all on function public.generate_recurring_charges(uuid, date) from public;
 grant execute on function public.generate_recurring_charges(uuid, date) to authenticated;
 
 -- pg_cron is new here: no prior migration enables it. Runs daily at 06:00 UTC
--- and lets generate_recurring_charges decide whether today actually starts a
--- period for each child's cadence.
+-- and lets generate_recurring_charges_impl decide whether today actually
+-- starts a period for each child's cadence.
 create extension if not exists pg_cron with schema extensions;
 
+-- Iterates every tenant and calls the internal implementation directly,
+-- bypassing the director/tenant guard on the public wrapper -- that's the
+-- whole point of this job, since it must act across all tenants, not just
+-- one caller's own.
 create or replace function public.run_daily_billing()
 returns void
 language plpgsql
@@ -218,10 +317,18 @@ declare
   v_tenant record;
 begin
   for v_tenant in select id from public.tenants loop
-    perform public.generate_recurring_charges(v_tenant.id, current_date);
+    perform public.generate_recurring_charges_impl(v_tenant.id, current_date);
   end loop;
 end;
 $$;
+
+-- Fans out to every tenant with no auth check of its own, so it must never
+-- be reachable via PostgREST RPC -- otherwise anon/authenticated could
+-- trigger a full, all-tenant billing run on demand. Supabase runs scheduled
+-- pg_cron jobs as the role that registered them (this migration's role,
+-- which owns this function), not as an API caller, so revoking from public
+-- still leaves cron.schedule's invocation working.
+revoke all on function public.run_daily_billing() from public;
 
 select cron.schedule(
   'daily-billing',
