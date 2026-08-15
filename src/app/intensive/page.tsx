@@ -214,14 +214,17 @@ export default function IntensiveLandingPage() {
 
       <section className="bg-brand-ink px-6 py-[58px]">
         <div className="mx-auto grid max-w-[720px] grid-cols-[repeat(auto-fit,minmax(240px,1fr))] items-start gap-[30px]">
-          <div className="max-w-[300px]">
+          <div className="max-w-[420px]">
             {INTENSIVE.host.photo ? (
+              // Rendered at the photo's own aspect ratio rather than cropped
+              // to a portrait frame -- this shot is landscape, and forcing it
+              // into 3:4 threw away the room it was taken in.
               <Image
                 src={INTENSIVE.host.photo}
                 alt={`${INTENSIVE.host.name}, ${INTENSIVE.host.title}`}
-                width={600}
-                height={800}
-                className="aspect-[3/4] w-full rounded-xl border border-[rgba(227,12,123,.3)] object-cover object-[50%_22%]"
+                width={1200}
+                height={906}
+                className="h-auto w-full rounded-xl border border-[rgba(227,12,123,.3)]"
               />
             ) : (
               // No photo on file yet -- a branded monogram frame keeps the

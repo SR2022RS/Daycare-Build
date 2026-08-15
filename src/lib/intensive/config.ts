@@ -27,11 +27,14 @@ export const INTENSIVE = {
     title: "CEO, Amazin Kids Paradise Academy",
     /**
      * Path under /public, or null to fall back to the branded monogram
-     * frame rather than a broken image. Pre-cropped to 3:4 at 720x960 to
-     * match the About section's frame, so object-position has nothing left
-     * to correct.
+     * frame rather than a broken image.
+     *
+     * Rendered at its own aspect ratio (1200x906), not cropped to a
+     * portrait. If you replace it, change the filename too: both Next's
+     * image optimizer and Vercel's CDN cache by URL, so reusing the name
+     * serves the old picture long after the file has changed.
      */
-    photo: "/intensive/shikara.jpg" as string | null,
+    photo: "/intensive/shikara-host.jpg" as string | null,
   },
 
   price: 300,
