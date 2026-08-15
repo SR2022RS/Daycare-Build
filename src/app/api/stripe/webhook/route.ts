@@ -2,7 +2,7 @@ import type Stripe from "stripe";
 
 import { getStripe } from "@/lib/stripe/client";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { INTENSIVE } from "@/lib/intensive/config";
+import { INTENSIVE, isInPerson } from "@/lib/intensive/config";
 import { sendEmail } from "@/lib/email/resend";
 import type { Database } from "@/types/database.types";
 
@@ -142,9 +142,11 @@ async function recordSession(session: Stripe.Checkout.Session, eventType: string
 }
 
 async function sendConfirmation(row: InsertRow) {
-  const where = INTENSIVE.zoom.link
-    ? `<p><strong>Zoom:</strong> <a href="${INTENSIVE.zoom.link}">${INTENSIVE.zoom.link}</a></p>`
-    : `<p><strong>Zoom:</strong> your link is on its way — it is issued closer to the date.</p>`;
+  const where = isInPerson
+    ? `<p><strong>Where:</strong> ${INTENSIVE.venue.name}<br />${INTENSIVE.venue.address}</p>`
+    : INTENSIVE.zoom.link
+      ? `<p><strong>Zoom:</strong> <a href="${INTENSIVE.zoom.link}">${INTENSIVE.zoom.link}</a></p>`
+      : `<p><strong>Zoom:</strong> your link is on its way — it is issued closer to the date.</p>`;
 
   await sendEmail({
     to: row.email,
@@ -160,8 +162,8 @@ async function sendConfirmation(row: InsertRow) {
         ${where}
         <p><strong>Paid:</strong> $${(row.amount_cents / 100).toFixed(2)} ${String(row.currency).toUpperCase()} · one payment</p>
         <p style="line-height:1.6;color:#334155;">
-          Bring your state, any numbers you already have, and a quiet five hours.
-          Worksheets go out the morning of the session.
+          Bring your state, any numbers you already have, and something to write with.
+          Doors open at ${INTENSIVE.doorsOpen} — come early and get settled.
         </p>
         <p style="color:#64748B;font-size:13px;line-height:1.6;">
           Questions? Reply to this email or call ${INTENSIVE.phone}.

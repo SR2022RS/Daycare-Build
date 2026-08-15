@@ -56,7 +56,7 @@ export const INTENSIVE = {
   timezoneLabel: "ET",
   timezoneOffsetUTC: -4,
 
-  format: "zoom" as "zoom" | "in-person",
+  format: "in-person" as "zoom" | "in-person",
   venue: {
     name: "Republic 23 Lounge",
     address: "87 S Washington Ave, Bergenfield, NJ 07621",
@@ -67,11 +67,12 @@ export const INTENSIVE = {
   replay: { included: true, days: 7 },
 
   /**
-   * Deliberately blank. A $300 ticket must not go live with refund terms
-   * invented by a builder -- the FAQ renders an "awaiting Shikara" notice
-   * while this is empty, and switches to the real answer once it is filled.
+   * Supplied by Shikara. While this is empty the FAQ renders an "awaiting
+   * Shikara, do not publish" notice instead of inventing terms; now that it
+   * is set, the real answer renders and that notice is gone.
    */
-  refundPolicy: "",
+  refundPolicy:
+    "All sales are final. Your seat is reserved the moment you pay, so there are no refunds and no transfers. If you cannot make it on the day, you still keep the materials packet and the replay.",
 
   senderEmail: "amazinkidsparadiseacademy@yahoo.com",
   phone: "973-523-5318",
@@ -91,8 +92,8 @@ export interface AgendaBlock {
 export const AGENDA: AgendaBlock[] = [
   {
     time: "11:30 AM",
-    title: "Zoom room opens",
-    detail: "Log in early, test your audio, and say hello. We start on time at noon.",
+    title: "Doors open",
+    detail: "Come early, find your seat and say hello. We start on time at noon.",
     soft: true,
   },
   {
@@ -116,7 +117,7 @@ export const AGENDA: AgendaBlock[] = [
   {
     time: "3:00 – 3:15",
     title: "Break",
-    detail: "Step away, eat something, come back. We stay on the call.",
+    detail: "Step away, eat something, stretch. We pick straight back up at 3:15.",
     soft: true,
   },
   {
@@ -152,11 +153,11 @@ export const DELIVERABLES = [
   },
   {
     title: "Your materials packet",
-    detail: "Emailed the morning of, yours to keep. Nothing is gatekept for an upsell.",
+    detail: "Handed to you on the day, yours to keep. Nothing is gatekept for an upsell.",
   },
   {
     title: "The room",
-    detail: "Five hours with owners solving the exact problem you are solving.",
+    detail: "Five hours in a room with owners solving the exact problem you are solving.",
   },
 ];
 
@@ -185,7 +186,7 @@ export const PREP_LIST = [
   "Your state — or the state you plan to open in. We look up your agency live on the call.",
   "Any numbers you already have: a rent quote, a space you are considering, a budget you drafted.",
   "If you are already open: your current enrollment count and your tuition rates.",
-  "A quiet five hours, a charged laptop, and the worksheets we email you that morning.",
+  "Something to write with, and a way to take notes. Worksheets are handed out on the day.",
 ];
 
 export interface Faq {
@@ -206,10 +207,10 @@ export function buildFaqs(): Faq[] {
         : "No. This session is live only and is not recorded, so plan to attend in the room.",
     },
     {
-      question: "What if I cannot attend live?",
+      question: "What if I cannot make it that day?",
       answer: INTENSIVE.replay.included
-        ? `Register anyway. You keep the materials packet and the replay for ${days} days. You will miss the room and the live Q&A, which is a real loss, but the plan is still yours.`
-        : "You keep the materials packet, but the session itself is live only — if you cannot make the five hours, wait for the next date.",
+        ? `Register anyway. We email you the materials packet and the replay stays open for ${days} days. You will miss the room and the live Q&A, which is a real loss at an in-person session, but the plan is still yours. Note that seats are non-refundable either way — see the refund question below.`
+        : "The session is in person and live only. If you cannot be in the room that day, wait for the next date rather than paying for a seat you cannot use.",
     },
     {
       question: "Is this for people who have not started yet?",
