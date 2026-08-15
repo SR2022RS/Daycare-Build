@@ -116,7 +116,6 @@ export default async function InvoiceDetailPage({
                 {!c.void && (
                   <form action={voidCharge}>
                     <input type="hidden" name="chargeId" value={c.id} />
-                    <input type="hidden" name="invoiceId" value={invoice.id} />
                     <button
                       type="submit"
                       className="text-[11px] font-medium text-gray-400 hover:text-red-600"
