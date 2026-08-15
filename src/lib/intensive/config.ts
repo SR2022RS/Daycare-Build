@@ -26,13 +26,12 @@ export const INTENSIVE = {
     name: "Shikara Smith",
     title: "CEO, Amazin Kids Paradise Academy",
     /**
-     * Path under /public. Set to null and the About section renders a
-     * branded monogram frame instead of a broken image -- which is what it
-     * does right now, because the photo has not been dropped in yet.
-     * To use the real photo: save it to public/intensive/shikara.jpg and
-     * change this to "/intensive/shikara.jpg".
+     * Path under /public, or null to fall back to the branded monogram
+     * frame rather than a broken image. Pre-cropped to 3:4 at 720x960 to
+     * match the About section's frame, so object-position has nothing left
+     * to correct.
      */
-    photo: null as string | null,
+    photo: "/intensive/shikara.jpg" as string | null,
   },
 
   price: 300,
