@@ -157,7 +157,10 @@ export default async function InvoiceDetailPage({
                 <span
                   className={`text-[13px] tabular-nums ${c.void ? "text-gray-400 line-through" : "text-gray-700"}`}
                 >
-                  ${c.parent_amount.toFixed(2)}
+                  {/* A credit's parent_amount is stored negative -- render it as
+                      "−$100.00" (sign prefixed, magnitude after) rather than the
+                      default "$-100.00" template-literal concatenation. */}
+                  {c.parent_amount < 0 && "−"}${Math.abs(c.parent_amount).toFixed(2)}
                 </span>
                 {!c.void && (
                   <form action={voidCharge}>

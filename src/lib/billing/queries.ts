@@ -52,6 +52,13 @@ export async function getInvoiceList(
   return (data ?? []).map(toRow);
 }
 
+// One unattached (invoice_id null) overpayment credit, still waiting for a
+// generation run to carry it onto the guardian's next invoice.
+export interface PendingCreditRow {
+  id: string;
+  amount: number;
+}
+
 export interface FamilyBalance {
   guardianName: string;
   invoices: InvoiceListRow[];
@@ -59,8 +66,12 @@ export interface FamilyBalance {
   // Spec §91/§141: an applied-but-not-yet-attached overpayment credit
   // (invoice_id null) is otherwise invisible on the family balance page --
   // it only shows up once a future generation run attaches it to a new
-  // invoice. Surfacing it here so a director isn't surprised later.
-  pendingCredit: number;
+  // invoice. Surfacing it here so a director isn't surprised later. A row
+  // per credit (not just a total) so the page can offer a void control on
+  // each one individually -- a family can in principle have more than one
+  // pending credit at once (e.g. two overpaid invoices credited before
+  // either has been attached by a generation run).
+  pendingCredits: PendingCreditRow[];
 }
 
 export async function getFamilyBalance(
@@ -80,7 +91,7 @@ export async function getFamilyBalance(
       .order("period_start", { ascending: false }),
     supabase
       .from("charges")
-      .select("parent_amount")
+      .select("id, parent_amount")
       .eq("tenant_id", tenantId)
       .eq("guardian_id", guardianId)
       .eq("type", "credit")
@@ -98,13 +109,16 @@ export async function getFamilyBalance(
 
   // parent_amount is stored negative for a credit, so negate it back to a
   // positive "pending credit" figure for display.
-  const pendingCredit = (creditRows ?? []).reduce((sum, c) => sum - c.parent_amount, 0);
+  const pendingCredits = (creditRows ?? []).map((c) => ({
+    id: c.id,
+    amount: Math.round(-c.parent_amount * 100) / 100,
+  }));
 
   return {
     guardianName: guardian?.full_name ?? "Unknown",
     invoices,
     outstanding: Math.round(outstanding * 100) / 100,
-    pendingCredit: Math.round(pendingCredit * 100) / 100,
+    pendingCredits,
   };
 }
 

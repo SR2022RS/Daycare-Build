@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
 import { getFamilyBalance } from "@/lib/billing/queries";
 import { INVOICE_STATUS_LABELS, TONE_CLASSES, invoiceStatusTone } from "@/lib/billing/labels";
+import { voidCharge } from "@/lib/billing/actions";
 import { AddChargeForm } from "@/components/billing/add-charge-form";
 
 export default async function FamilyBalancePage({
@@ -57,10 +58,29 @@ export default async function FamilyBalancePage({
           <p className="mt-1 text-[13px] text-gray-500">
             {children.map((c) => c.name).join(", ") || "No children linked"}
           </p>
-          {balance.pendingCredit > 0 && (
-            <p className="mt-1 text-[12.5px] font-medium text-amber-700">
-              Pending credit: ${balance.pendingCredit.toFixed(2)} — applies to their next invoice
-            </p>
+          {balance.pendingCredits.length > 0 && (
+            <div className="mt-1.5 flex flex-col gap-1">
+              {balance.pendingCredits.map((credit) => (
+                <div key={credit.id} className="flex flex-wrap items-center gap-2 text-[12.5px] font-medium text-amber-700">
+                  <span>Pending credit: ${credit.amount.toFixed(2)} — applies to their next invoice</span>
+                  {/* Reuses the same voidCharge action the invoice line items use.
+                      A pending credit has no invoice_id yet, which voidCharge
+                      already handles (it only revalidates /billing/<id> when
+                      invoiceId is non-null); it additionally revalidates this
+                      guardian page via the charge's guardian_id, so the line
+                      disappears immediately after voiding. */}
+                  <form action={voidCharge}>
+                    <input type="hidden" name="chargeId" value={credit.id} />
+                    <button
+                      type="submit"
+                      className="text-[11px] font-semibold text-amber-700/70 underline hover:text-red-600"
+                    >
+                      Void
+                    </button>
+                  </form>
+                </div>
+              ))}
+            </div>
           )}
         </div>
         <div className="text-right">

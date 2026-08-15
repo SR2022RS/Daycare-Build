@@ -337,23 +337,36 @@ export async function voidCharge(formData: FormData) {
   // .select(...).maybeSingle() after the write, not a bare .update(): RLS
   // blocks a write by matching zero rows rather than raising an error, so
   // without this an RLS-blocked void would silently report success. The
-  // returned invoice_id is used (below) instead of trusting whatever the
-  // client submitted in the form, and totals recalc automatically via the
-  // triggers in 20260814120300_billing_recalc_triggers.sql.
+  // returned invoice_id/guardian_id are used (below) instead of trusting
+  // whatever the client submitted in the form, and totals recalc
+  // automatically via the triggers in
+  // 20260814120300_billing_recalc_triggers.sql. guardian_id is only ever
+  // non-null on a family-level overpayment credit (charges_child_or_guardian
+  // in 20260814120600_overpayment_credits.sql) -- ordinary child-scoped
+  // charges leave it null, so the extra revalidate below is a no-op for
+  // every void except a credit's.
   const { data, error } = await supabase
     .from("charges")
     .update({ void: true, voided_at: new Date().toISOString() })
     .eq("id", chargeId)
-    .select("invoice_id")
+    .select("invoice_id, guardian_id")
     .maybeSingle();
 
   if (error || !data) return;
 
   const invoiceId = data.invoice_id;
+  const guardianId = data.guardian_id;
 
   revalidatePath("/billing");
+  // A voided charge with no invoice yet is an unattached family credit --
+  // e.g. voided from the "Pending credit" line on the guardian's balance
+  // page before any generation run has attached it (invoice_id is still
+  // null at that point, so there is no /billing/<invoiceId> page to
+  // revalidate). Revalidate the guardian's own balance page instead so the
+  // voided line disappears immediately.
   if (invoiceId) revalidatePath(`/billing/${invoiceId}`);
   revalidatePath("/billing/revenue");
+  if (guardianId) revalidatePath(`/billing/guardians/${guardianId}`);
 }
 
 export async function generateNow(
