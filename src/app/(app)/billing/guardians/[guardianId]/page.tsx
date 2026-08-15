@@ -57,6 +57,11 @@ export default async function FamilyBalancePage({
           <p className="mt-1 text-[13px] text-gray-500">
             {children.map((c) => c.name).join(", ") || "No children linked"}
           </p>
+          {balance.pendingCredit > 0 && (
+            <p className="mt-1 text-[12.5px] font-medium text-amber-700">
+              Pending credit: ${balance.pendingCredit.toFixed(2)} — applies to their next invoice
+            </p>
+          )}
         </div>
         <div className="text-right">
           <div className="text-2xl font-semibold text-gray-900 tabular-nums">

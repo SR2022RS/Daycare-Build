@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth/dal";
 import { todayISO } from "@/lib/billing/dates";
 import { CHARGE_TYPE_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/billing/labels";
+import { overpaymentExcess } from "@/lib/billing/overpayment";
 import { createClient } from "@/lib/supabase/server";
 import type { ChargeType, PaymentMethod } from "@/types/database.types";
 
@@ -90,6 +91,91 @@ export async function recordPayment(
   revalidatePath(`/billing/${invoiceId}`);
   revalidatePath("/billing/revenue");
   revalidatePath("/dashboard");
+}
+
+// Spec §91/§141: an overpayment becomes a credit-type charge carried onto
+// the guardian's next invoice, rather than an invisible excess (every
+// balance figure in the app clamps at 0). Director-initiated by design --
+// nothing financial happens without an explicit click on the amber banner's
+// button in /billing/[invoiceId]/page.tsx.
+export async function applyOverpaymentCredit(
+  _state: BillingActionState,
+  formData: FormData,
+): Promise<BillingActionState> {
+  const session = await requireRole(["director", "platform_admin"]);
+
+  const invoiceId = str(formData, "invoiceId");
+  if (!invoiceId) return { message: "Missing invoice." };
+
+  const supabase = await createClient();
+
+  // invoiceId arrives from a hidden form field, so it must be verified to
+  // belong to this director's own tenant before use -- charges_write only
+  // checks the new charge row's own tenant_id (supplied by us, below, from
+  // the session, so it always passes), not that invoiceId actually points
+  // at an invoice in that tenant. Without this pre-check, a director
+  // holding another tenant's invoice UUID could apply a credit against it.
+  // Mirrors the ownership check in recordPayment above. The excess amount
+  // is deliberately never read from the client -- it is re-derived here
+  // from the invoice's own stored total_amount/amount_paid, the same values
+  // recalc_invoice_totals maintains, so a tampered form field can never
+  // create a credit for more (or less) than the invoice actually overpaid.
+  const { data: invoice } = await supabase
+    .from("invoices")
+    .select("id, guardian_id, location_id, total_amount, amount_paid, period_start, period_end")
+    .eq("id", invoiceId)
+    .eq("tenant_id", session.profile.tenantId)
+    .maybeSingle();
+
+  if (!invoice) return { message: "You don't have access to this invoice." };
+
+  const excess = overpaymentExcess(invoice.total_amount, invoice.amount_paid);
+  if (excess <= 0) return { message: "This invoice isn't overpaid." };
+
+  const { data, error } = await supabase
+    .from("charges")
+    .insert({
+      tenant_id: session.profile.tenantId,
+      location_id: invoice.location_id,
+      child_id: null,
+      guardian_id: invoice.guardian_id,
+      invoice_id: null, // Unattached -- the generator adopts it onto the family's next invoice.
+      type: "credit",
+      // Negative: credits reduce what's owed. The
+      // charges_tuition_parent_amount_non_negative constraint only applies
+      // to type = 'tuition', so a negative parent_amount here is permitted.
+      parent_amount: -excess,
+      subsidy_amount: 0,
+      source_invoice_id: invoiceId,
+      created_by: session.profile.id,
+      description: `Credit from overpayment on invoice ${invoice.period_start}–${invoice.period_end}`,
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    // 23505 = unique_violation on charges_source_invoice_key: a credit was
+    // already applied for this exact overpaid invoice -- most likely a
+    // double-click racing this same request. Distinguish it with a truthful
+    // message instead of a generic failure, since the underlying state
+    // (a credit exists) is actually fine.
+    if (error.code === "23505") {
+      return { message: "A credit has already been applied for this overpayment." };
+    }
+    return { message: "Couldn't apply that credit. Try again." };
+  }
+  if (!data) return { message: "You don't have access to this invoice." };
+
+  // Trigger-maintained -- see the comment in recordPayment above. This
+  // credit is unattached (invoice_id null) until the next generation run,
+  // so nothing on *this* invoice's totals changes; the revalidates below
+  // are about the credit becoming visible (the banner flipping to "Credit
+  // applied") and the guardian's pending-credit line, not a totals change.
+  revalidatePath("/billing");
+  revalidatePath(`/billing/${invoiceId}`);
+  revalidatePath("/billing/revenue");
+  revalidatePath("/dashboard");
+  revalidatePath(`/billing/guardians/${invoice.guardian_id}`);
 }
 
 export async function addManualCharge(

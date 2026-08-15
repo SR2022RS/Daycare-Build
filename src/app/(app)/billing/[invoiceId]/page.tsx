@@ -12,6 +12,7 @@ import {
   invoiceStatusTone,
 } from "@/lib/billing/labels";
 import { RecordPaymentForm } from "@/components/billing/record-payment-form";
+import { ApplyCreditForm } from "@/components/billing/apply-credit-form";
 import type { PaymentMethod } from "@/types/database.types";
 
 export default async function InvoiceDetailPage({
@@ -38,10 +39,10 @@ export default async function InvoiceDetailPage({
 
   const guardian = Array.isArray(invoice.guardians) ? invoice.guardians[0] : invoice.guardians;
 
-  const [{ data: chargeRows }, { data: paymentRows }] = await Promise.all([
+  const [{ data: chargeRows }, { data: paymentRows }, { data: existingCredit }] = await Promise.all([
     supabase
       .from("charges")
-      .select("id, type, description, subsidy_amount, parent_amount, void, children(full_name)")
+      .select("id, type, description, subsidy_amount, parent_amount, void, child_id, children(full_name)")
       .eq("invoice_id", invoiceId)
       .order("created_at"),
     supabase
@@ -49,20 +50,42 @@ export default async function InvoiceDetailPage({
       .select("id, amount, method, paid_at, note")
       .eq("invoice_id", invoiceId)
       .order("paid_at", { ascending: false }),
+    // Has a credit already been applied for this specific overpayment? A
+    // live (non-void) row here means the amber banner should show
+    // confirmation text instead of the "Apply credit" control -- otherwise
+    // a director could apply a second credit for the same overpayment (the
+    // charges_source_invoice_key partial unique index would reject the
+    // insert, but the UI should never offer the dead-end button at all).
+    supabase
+      .from("charges")
+      .select("id")
+      .eq("source_invoice_id", invoiceId)
+      .eq("type", "credit")
+      .eq("void", false)
+      .maybeSingle(),
   ]);
 
   const charges = (chargeRows ?? []).map((c) => {
+    // A charge with child_id null is, by charges_child_or_guardian, a
+    // family-level charge -- in practice today, only an overpayment credit.
+    // Render it as "Family credit" deliberately rather than falling through
+    // to the children-join fallback below, which is reserved for the
+    // genuinely-unexpected case of a child-scoped charge whose child row
+    // can't be found (e.g. a data integrity issue), not the expected/normal
+    // case of a credit that was never child-scoped to begin with.
+    if (c.child_id === null) {
+      return { ...c, childName: "Family credit" };
+    }
     const child = Array.isArray(c.children) ? c.children[0] : c.children;
     return { ...c, childName: child?.full_name ?? "Unknown" };
   });
 
   const balance = invoice.total_amount - invoice.amount_paid;
-  // Spec §91/§141: an overpayment should become a credit-type charge on the
-  // guardian's next invoice -- that automatic credit path is deferred to the
-  // Stripe phase (spec's own future-work section). Until then, clamp the
-  // displayed balance at 0 (matching every other balance figure in the app,
-  // per queries.ts) and surface the excess explicitly so a director notices
-  // and can act on it manually via "Add charge" (credit).
+  // Spec §91/§141: an overpayment becomes a credit-type charge carried onto
+  // the guardian's next invoice. Clamp the displayed balance at 0 (matching
+  // every other balance figure in the app, per queries.ts) and surface the
+  // excess explicitly via the amber banner below, with a control to apply
+  // it as a credit (or confirmation text if one's already been applied).
   const overpaid = invoice.amount_paid > invoice.total_amount;
   const overpaidAmount = overpaid ? invoice.amount_paid - invoice.total_amount : 0;
 
@@ -99,7 +122,14 @@ export default async function InvoiceDetailPage({
 
       {overpaid && (
         <div className={`mb-4 rounded-xl px-4.5 py-3 text-[13px] font-medium ${TONE_CLASSES.amber}`}>
-          Overpaid by ${overpaidAmount.toFixed(2)} — add a credit to carry this forward.
+          {existingCredit ? (
+            "Credit applied — will appear on their next invoice"
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>Overpaid by ${overpaidAmount.toFixed(2)} — add a credit to carry this forward.</span>
+              <ApplyCreditForm invoiceId={invoice.id} amount={overpaidAmount} />
+            </div>
+          )}
         </div>
       )}
 

@@ -56,6 +56,11 @@ export interface FamilyBalance {
   guardianName: string;
   invoices: InvoiceListRow[];
   outstanding: number;
+  // Spec §91/§141: an applied-but-not-yet-attached overpayment credit
+  // (invoice_id null) is otherwise invisible on the family balance page --
+  // it only shows up once a future generation run attaches it to a new
+  // invoice. Surfacing it here so a director isn't surprised later.
+  pendingCredit: number;
 }
 
 export async function getFamilyBalance(
@@ -63,7 +68,7 @@ export async function getFamilyBalance(
   tenantId: string,
   guardianId: string,
 ): Promise<FamilyBalance> {
-  const [{ data: guardian }, { data: invoiceRows }] = await Promise.all([
+  const [{ data: guardian }, { data: invoiceRows }, { data: creditRows }] = await Promise.all([
     supabase.from("guardians").select("full_name").eq("id", guardianId).maybeSingle(),
     supabase
       .from("invoices")
@@ -73,6 +78,14 @@ export async function getFamilyBalance(
       .eq("tenant_id", tenantId)
       .eq("guardian_id", guardianId)
       .order("period_start", { ascending: false }),
+    supabase
+      .from("charges")
+      .select("parent_amount")
+      .eq("tenant_id", tenantId)
+      .eq("guardian_id", guardianId)
+      .eq("type", "credit")
+      .eq("void", false)
+      .is("invoice_id", null),
   ]);
 
   const invoices = (invoiceRows ?? []).map(toRow);
@@ -83,10 +96,15 @@ export async function getFamilyBalance(
     .filter((i) => i.status === "open" || i.status === "partial")
     .reduce((sum, i) => sum + Math.max(i.total - i.paid, 0), 0);
 
+  // parent_amount is stored negative for a credit, so negate it back to a
+  // positive "pending credit" figure for display.
+  const pendingCredit = (creditRows ?? []).reduce((sum, c) => sum - c.parent_amount, 0);
+
   return {
     guardianName: guardian?.full_name ?? "Unknown",
     invoices,
     outstanding: Math.round(outstanding * 100) / 100,
+    pendingCredit: Math.round(pendingCredit * 100) / 100,
   };
 }
 
