@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { todayISO } from "@/lib/billing/dates";
 import type { Database, InvoiceStatus } from "@/types/database.types";
 
 export interface InvoiceListRow {
@@ -75,9 +76,12 @@ export async function getFamilyBalance(
   ]);
 
   const invoices = (invoiceRows ?? []).map(toRow);
+  // Clamp each invoice at 0 and sum only open/partial invoices, matching
+  // getOutstandingTotal and getRevenueSummary so all three balance figures
+  // agree with each other.
   const outstanding = invoices
     .filter((i) => i.status === "open" || i.status === "partial")
-    .reduce((sum, i) => sum + (i.total - i.paid), 0);
+    .reduce((sum, i) => sum + Math.max(i.total - i.paid, 0), 0);
 
   return {
     guardianName: guardian?.full_name ?? "Unknown",
@@ -100,10 +104,10 @@ export async function getRevenueSummary(
   billed: number;
   collected: number;
   outstanding: number;
-  subsidyPending: number;
+  subsidyBilled: number;
   aging: AgingRow[];
 }> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
 
   const [{ data: invoiceRows }, { data: chargeRows }] = await Promise.all([
     supabase
@@ -121,7 +125,19 @@ export async function getRevenueSummary(
   const invoices = invoiceRows ?? [];
   const billed = invoices.reduce((sum, i) => sum + i.total_amount, 0);
   const collected = invoices.reduce((sum, i) => sum + i.amount_paid, 0);
-  const subsidyPending = (chargeRows ?? []).reduce((sum, c) => sum + c.subsidy_amount, 0);
+  // Lifetime billed total across every non-void charge ever, including
+  // charges on invoices that are already fully paid or void-adjacent -- not
+  // an outstanding/pending figure. Named accordingly so it isn't mistaken
+  // for "subsidy still owed."
+  const subsidyBilled = (chargeRows ?? []).reduce((sum, c) => sum + c.subsidy_amount, 0);
+  // Clamp each invoice at 0 and sum only open/partial invoices -- matches
+  // getFamilyBalance/getOutstandingTotal so all three balance figures agree.
+  // (billed - collected across all non-void invoices, the previous formula,
+  // could go negative on an overpayment, since the DB only requires
+  // amount > 0, not amount <= balance due.)
+  const outstanding = invoices
+    .filter((i) => i.status === "open" || i.status === "partial")
+    .reduce((sum, i) => sum + Math.max(i.total_amount - i.amount_paid, 0), 0);
 
   const aging: AgingRow[] = invoices
     .filter((i) => (i.status === "open" || i.status === "partial") && i.due_date < today)
@@ -142,8 +158,8 @@ export async function getRevenueSummary(
   return {
     billed: Math.round(billed * 100) / 100,
     collected: Math.round(collected * 100) / 100,
-    outstanding: Math.round((billed - collected) * 100) / 100,
-    subsidyPending: Math.round(subsidyPending * 100) / 100,
+    outstanding: Math.round(outstanding * 100) / 100,
+    subsidyBilled: Math.round(subsidyBilled * 100) / 100,
     aging,
   };
 }
@@ -152,7 +168,7 @@ export async function getOutstandingTotal(
   supabase: SupabaseClient<Database>,
   tenantId: string,
 ): Promise<{ total: number; overdueCount: number }> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
 
   const { data } = await supabase
     .from("invoices")
@@ -161,7 +177,9 @@ export async function getOutstandingTotal(
     .in("status", ["open", "partial"]);
 
   const rows = data ?? [];
-  const total = rows.reduce((sum, i) => sum + (i.total_amount - i.amount_paid), 0);
+  // Clamp at 0 -- matches getFamilyBalance/getRevenueSummary so all three
+  // balance figures agree even in an overpayment edge case.
+  const total = rows.reduce((sum, i) => sum + Math.max(i.total_amount - i.amount_paid, 0), 0);
   const overdueCount = rows.filter((i) => i.due_date < today).length;
 
   return { total: Math.round(total * 100) / 100, overdueCount };

@@ -1268,7 +1268,7 @@ export interface Database {
         Row: {
           child_id: string;
           tenant_id: string;
-          balance_status: string;
+          balance_status: "overdue" | "current";
         };
         Relationships: [];
       };
@@ -1285,10 +1285,6 @@ export interface Database {
       generate_recurring_charges: {
         Args: { p_tenant_id: string; p_on: string };
         Returns: number;
-      };
-      recalc_invoice_totals: {
-        Args: { p_invoice_id: string };
-        Returns: undefined;
       };
     };
     Enums: {

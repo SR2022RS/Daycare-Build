@@ -1,3 +1,4 @@
+import { todayISO } from "@/lib/billing/dates";
 import type { ChargeType, InvoiceStatus, PaymentMethod } from "@/types/database.types";
 
 export const CHARGE_TYPE_LABELS: Record<ChargeType, string> = {
@@ -29,7 +30,7 @@ export function invoiceStatusTone(
 ): "green" | "amber" | "red" | "gray" {
   if (status === "paid") return "green";
   if (status === "void") return "gray";
-  const overdue = dueDate < new Date().toISOString().slice(0, 10);
+  const overdue = dueDate < todayISO();
   if (overdue) return "red";
   return "amber";
 }
