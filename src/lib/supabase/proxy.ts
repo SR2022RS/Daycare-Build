@@ -42,7 +42,21 @@ const PUBLIC_PATHS = [
 // only one.
 const PROTECTED_EXCEPTIONS = ["/intensive/registrations"];
 
+// Hosts that exist to sell the intensive rather than to run the daycare.
+// The portal and the funnel are one deployment, so the same app answers on
+// both -- these hosts just land on /intensive instead of the staff portal.
+// Add the marketing domain here once it moves off *.vercel.app.
+const FUNNEL_HOSTS = ["daycareownerintensive.vercel.app"];
+
 export async function updateSession(request: NextRequest) {
+  // Handled before the Supabase client is built: /intensive is a public,
+  // statically-rendered marketing page, so a visitor landing on the funnel
+  // domain should not pay for a session lookup to see it.
+  const host = request.headers.get("host")?.split(":")[0] ?? "";
+  if (FUNNEL_HOSTS.includes(host) && request.nextUrl.pathname === "/") {
+    return NextResponse.rewrite(new URL("/intensive", request.url));
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   // With Fluid Compute, don't put this client in a global -- create fresh per request.
