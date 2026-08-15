@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { FUNNEL_HOSTS } from "@/lib/intensive/config";
+
 // Auth pages: unauthenticated visitors get in, but a logged-in user gets
 // bounced to /dashboard -- there's no reason to be on /login once signed in.
 const AUTH_PATHS = ["/login", "/signup", "/forgot-password"];
@@ -42,16 +44,8 @@ const PUBLIC_PATHS = [
 // only one.
 const PROTECTED_EXCEPTIONS = ["/intensive/registrations"];
 
-// Hosts that exist to sell the intensive rather than to run the daycare.
-// The portal and the funnel are one deployment, so the same app answers on
-// both -- these hosts just land on /intensive instead of the staff portal.
-// Add the marketing domain here once it moves off *.vercel.app.
-const FUNNEL_HOSTS = [
-  "intensive.amazinkidsparadiseacademy.com",
-  // Kept as a working fallback while the subdomain's DNS is set up, and as
-  // a stable host for testing the funnel without touching the live domain.
-  "daycareownerintensive.vercel.app",
-];
+// Defined in lib/intensive/config.ts so the checkout can share the list --
+// it doubles as the allowlist for Stripe return URLs.
 
 export async function updateSession(request: NextRequest) {
   // Handled before the Supabase client is built: /intensive is a public,

@@ -80,6 +80,24 @@ export const INTENSIVE = {
   capacity: null as number | null,
 } as const;
 
+/**
+ * Hosts that exist to sell the intensive rather than to run the daycare.
+ * The portal and the funnel are one deployment, so the same app answers on
+ * all of them; these just land on /intensive instead of the staff portal.
+ *
+ * Also the allowlist for Stripe return URLs: a buyer must come back to the
+ * domain they started on, and the Host header is attacker-controlled, so it
+ * is only trusted when it appears here.
+ */
+export const FUNNEL_HOSTS = [
+  "akpadaycareblueprint.com",
+  "www.akpadaycareblueprint.com",
+  "intensive.amazinkidsparadiseacademy.com",
+  // Works while DNS propagates, and gives us a stable host for exercising
+  // the funnel without touching a live domain.
+  "daycareownerintensive.vercel.app",
+];
+
 export interface AgendaBlock {
   time: string;
   title: string;

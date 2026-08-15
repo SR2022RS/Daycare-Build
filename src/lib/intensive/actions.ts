@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 
-import { INTENSIVE } from "@/lib/intensive/config";
+import { FUNNEL_HOSTS, INTENSIVE } from "@/lib/intensive/config";
 import { getStripe, isStripeConfigured } from "@/lib/stripe/client";
 import { RegistrationSchema, type CheckoutResult } from "@/lib/intensive/definitions";
 
@@ -90,19 +90,31 @@ export async function startRegistration(formData: FormData): Promise<CheckoutRes
 }
 
 /**
- * Absolute origin for Stripe's return URLs. NEXT_PUBLIC_SITE_URL wins so
- * production always returns to the canonical domain; the request host is the
- * fallback so preview deployments return to themselves instead of bouncing
- * the buyer to production mid-payment.
+ * Absolute origin for Stripe's return URLs.
+ *
+ * The funnel answers on several domains, so a buyer has to come back to the
+ * one they started on -- being bounced to a different domain immediately
+ * after paying looks like the payment went somewhere it shouldn't have.
+ *
+ * The Host header is attacker-controlled, so it is only honoured when it is
+ * a known funnel host; anything else falls back to the configured site URL.
+ * Otherwise a forged Host would put an arbitrary domain in success_url.
  */
 async function resolveOrigin(): Promise<string> {
+  const headerList = await headers();
+  const rawHost = headerList.get("x-forwarded-host") ?? headerList.get("host") ?? "";
+  const host = rawHost.split(":")[0];
+
+  if (FUNNEL_HOSTS.includes(host)) {
+    const protocol = headerList.get("x-forwarded-proto") ?? "https";
+    return `${protocol}://${rawHost}`;
+  }
+
   const configured = process.env.NEXT_PUBLIC_SITE_URL;
   if (configured) return configured.replace(/\/$/, "");
 
-  const headerList = await headers();
-  const host = headerList.get("x-forwarded-host") ?? headerList.get("host");
-  const protocol = headerList.get("x-forwarded-proto") ?? (host?.startsWith("localhost") ? "http" : "https");
-  return `${protocol}://${host}`;
+  const protocol = headerList.get("x-forwarded-proto") ?? (host === "localhost" ? "http" : "https");
+  return `${protocol}://${rawHost}`;
 }
 
 /** zod v4 keeps field errors under `issues`; this shapes them for the form. */
