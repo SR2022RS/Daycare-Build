@@ -34,5 +34,13 @@ where c.tenant_id = public.current_tenant_id();
 
 alter view public.child_balance_status set (security_barrier = true);
 
-revoke all on public.child_balance_status from public;
+-- `revoke ... from public` alone is not enough: Supabase's default schema
+-- privileges grant SELECT directly to anon/authenticated at
+-- object-creation time, independent of the PUBLIC pseudo-role, so each
+-- unwanted grantee needs an explicit revoke (see pin_login.sql). Fails
+-- closed today either way -- an anon caller has no auth.uid(), so
+-- current_tenant_id() is null and the tenant filter above returns zero
+-- rows -- but naming anon explicitly here keeps this consistent with every
+-- other grant in this migration set instead of relying on that side effect.
+revoke all on public.child_balance_status from public, anon;
 grant select on public.child_balance_status to authenticated;

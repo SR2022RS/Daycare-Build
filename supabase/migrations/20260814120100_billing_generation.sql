@@ -50,12 +50,16 @@ begin
 end;
 $$;
 
--- security definer + rewrites total_amount/amount_paid/status on an
--- arbitrary invoice_id -- Postgres grants EXECUTE to PUBLIC by default,
--- which PostgREST would otherwise expose as a callable RPC. This is only
--- ever meant to run internally (from generate_recurring_charges_impl below,
--- and future payment-recording code), so no role gets it back.
-revoke all on function public.recalc_invoice_totals(uuid) from public;
+-- `revoke ... from public` alone is not enough: Supabase's default schema
+-- privileges grant EXECUTE directly to anon/authenticated/service_role at
+-- function-creation time, independent of the PUBLIC pseudo-role, so each
+-- unwanted grantee needs an explicit revoke (see pin_login.sql). This
+-- function is security definer with no tenant check and rewrites
+-- total_amount/amount_paid/status on an arbitrary invoice_id -- a direct
+-- RPC call would let anyone rewrite any invoice in any tenant, so it's
+-- internal only (called from generate_recurring_charges_impl below, and
+-- future payment-recording code) and reachable by no REST role at all.
+revoke all on function public.recalc_invoice_totals(uuid) from public, anon, authenticated, service_role;
 
 -- Generates one tuition charge per active child whose cadence period starts
 -- on p_on, attaches it to the payer guardian's invoice for that period
@@ -162,7 +166,15 @@ begin
     -- resulting null back to 0 so the not-null subsidy_amount column holds.
     if v_child.funding_type = 'private' or v_child.subsidy_weekly_amount is null then
       v_subsidy := 0;
-      v_parent := round(v_period_rate * v_fraction, 2);
+      -- weekly_rate carries no >= 0 check (children already holds live
+      -- production data that might violate one, so ruling out that
+      -- constraint deliberately -- see round-1 report). A negative rate
+      -- would otherwise produce a negative parent_amount here and trip
+      -- charges_tuition_parent_amount_non_negative as a check_violation,
+      -- which -- unlike unique_violation below -- is never caught, so it
+      -- would escape this function, escape run_daily_billing's tenant
+      -- loop, and abort the nightly run for every remaining tenant.
+      v_parent := greatest(round(v_period_rate * v_fraction, 2), 0);
     else
       v_subsidy := coalesce(round(
         (v_child.subsidy_weekly_amount * (v_period_rate / nullif(v_child.weekly_rate, 0))) * v_fraction, 2), 0);
@@ -170,10 +182,16 @@ begin
       -- data-entry error (subsidy > rate) must not push parent_amount
       -- negative and silently shrink the family's invoice. Clamp subsidy to
       -- the period amount so subsidy_amount + parent_amount always sums to
-      -- the period total, and parent_amount never goes below 0. The
+      -- the period total, and parent_amount never goes below 0. Also floor
+      -- subsidy itself at 0: a negative subsidy_weekly_amount (another
+      -- data-entry error, no check constraint on that column either) would
+      -- otherwise pass the upper clamp and break the sum invariant the
+      -- other direction (parent_amount > the period rate). The
       -- charges_tuition_parent_amount_non_negative constraint backstops
-      -- this for any other insert path.
-      v_subsidy := least(v_subsidy, round(v_period_rate * v_fraction, 2));
+      -- parent_amount for any other insert path, but weekly_rate can also
+      -- be negative -- see the comment in the private-pay branch above --
+      -- so parent_amount is floored at 0 here too.
+      v_subsidy := greatest(least(v_subsidy, round(v_period_rate * v_fraction, 2)), 0);
       v_parent := greatest(round(v_period_rate * v_fraction, 2) - v_subsidy, 0);
     end if;
 
@@ -265,12 +283,12 @@ begin
 end;
 $$;
 
--- Internal only: never grant EXECUTE to authenticated (see the comment
--- above the function). Its owner -- this migration's role, which also owns
--- the wrapper below and run_daily_billing -- can still call it, because
--- security definer functions execute with their owner's privileges
--- regardless of grants.
-revoke all on function public.generate_recurring_charges_impl(uuid, date) from public;
+-- `revoke ... from public` alone is not enough -- see the comment on
+-- recalc_invoice_totals above. Internal only: reachable by no REST role.
+-- Its owner -- this migration's role, which also owns the wrapper below
+-- and run_daily_billing -- can still call it, because security definer
+-- functions execute with their owner's privileges regardless of grants.
+revoke all on function public.generate_recurring_charges_impl(uuid, date) from public, anon, authenticated, service_role;
 
 -- Director-facing entry point: enforces "you may only generate charges for
 -- your own tenant, and only if you're a director/platform_admin" before
@@ -295,7 +313,12 @@ begin
 end;
 $$;
 
-revoke all on function public.generate_recurring_charges(uuid, date) from public;
+-- `revoke ... from public` alone is not enough -- see the comment on
+-- recalc_invoice_totals above. This is the intended director-facing entry
+-- point (its body enforces tenant + role), so authenticated keeps EXECUTE;
+-- anon (no session, so current_tenant_id()/current_role() would just be
+-- null) gets no grant at all.
+revoke all on function public.generate_recurring_charges(uuid, date) from public, anon;
 grant execute on function public.generate_recurring_charges(uuid, date) to authenticated;
 
 -- pg_cron is new here: no prior migration enables it. Runs daily at 06:00 UTC
@@ -322,13 +345,15 @@ begin
 end;
 $$;
 
--- Fans out to every tenant with no auth check of its own, so it must never
--- be reachable via PostgREST RPC -- otherwise anon/authenticated could
--- trigger a full, all-tenant billing run on demand. Supabase runs scheduled
--- pg_cron jobs as the role that registered them (this migration's role,
--- which owns this function), not as an API caller, so revoking from public
--- still leaves cron.schedule's invocation working.
-revoke all on function public.run_daily_billing() from public;
+-- `revoke ... from public` alone is not enough -- see the comment on
+-- recalc_invoice_totals above. Fans out to every tenant with no auth check
+-- of its own, so it must be reachable by no REST role at all -- otherwise
+-- anon/authenticated could trigger a full, all-tenant billing run on
+-- demand. Supabase runs scheduled pg_cron jobs as the role that registered
+-- them (this migration's role, which owns this function), not as an API
+-- caller, so revoking every REST role still leaves cron.schedule's
+-- invocation working.
+revoke all on function public.run_daily_billing() from public, anon, authenticated, service_role;
 
 select cron.schedule(
   'daily-billing',
