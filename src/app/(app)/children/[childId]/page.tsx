@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Send, Star } from "lucide-react";
 
-import { requireRole, verifySession } from "@/lib/auth/dal";
+import { verifySession } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
 import { addGuardian, removeGuardian, setGuardianPayer, updateChild } from "@/lib/children/actions";
 import { CADENCE_LABELS, FUNDING_TYPE_LABELS, SCHEDULE_LABELS } from "@/lib/children/labels";
@@ -413,30 +413,27 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
 }
 
 // Staff see the child's basics and whether the family is behind on payment --
-// never amounts. child_balance_status is the only billing surface staff can read.
+// never amounts. child_balance_status is the only billing surface staff can
+// read: public.children RLS restricts select to director/platform_admin, so
+// a direct children query returns nothing for staff (fix round 1, Critical
+// 1 / Controller Ruling K). The view carries the roster columns staff need
+// (full_name, classroom, location_name) alongside balance_status, scoped to
+// the caller's tenant by the view's own definition.
 async function StaffChildCard({ childId, tenantId }: { childId: string; tenantId: string }) {
   const supabase = await createClient();
 
-  const [{ data: child }, { data: balance }] = await Promise.all([
-    supabase
-      .from("children")
-      .select("full_name, classroom, dob, locations(name)")
-      .eq("id", childId)
-      .eq("tenant_id", tenantId)
-      .maybeSingle(),
-    supabase
-      .from("child_balance_status")
-      .select("balance_status")
-      .eq("child_id", childId)
-      .maybeSingle(),
-  ]);
+  const { data: child } = await supabase
+    .from("child_balance_status")
+    .select("full_name, classroom, location_name, balance_status")
+    .eq("child_id", childId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
 
   if (!child) {
     notFound();
   }
 
-  const location = Array.isArray(child.locations) ? child.locations[0] : child.locations;
-  const overdue = balance?.balance_status === "overdue";
+  const overdue = child.balance_status === "overdue";
 
   return (
     <div className="max-w-[560px]">
@@ -450,7 +447,7 @@ async function StaffChildCard({ childId, tenantId }: { childId: string; tenantId
         <div className="border-b border-gray-100 px-4.5 py-3.5">
           <h1 className="font-serif text-[14.5px] font-semibold text-gray-900">{child.full_name}</h1>
           <div className="mt-0.5 text-[11.5px] text-gray-400">
-            {child.classroom || "No classroom"} &middot; {location?.name ?? "—"}
+            {child.classroom || "No classroom"} &middot; {child.location_name ?? "—"}
           </div>
         </div>
         <div className="flex items-center justify-between px-4.5 py-3.5">

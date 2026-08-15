@@ -192,31 +192,28 @@ export default async function ChildrenPage() {
 
 // Staff get a minimal, non-filterable roster -- name, classroom, and whether
 // the family is behind on payment. No rates, funding type, or guardians;
-// child_balance_status is the only billing surface staff can read.
+// child_balance_status is the only billing surface staff can read:
+// public.children RLS restricts select to director/platform_admin, so a
+// direct children query returns nothing for staff (fix round 1, Critical 1 /
+// Controller Ruling K). The view carries the roster columns staff need
+// alongside balance_status, scoped to the caller's tenant by the view's own
+// definition.
 async function StaffChildrenList({ tenantId }: { tenantId: string }) {
   const supabase = await createClient();
 
-  const [{ data: children }, { data: balanceRows }] = await Promise.all([
-    supabase
-      .from("children")
-      .select("id, full_name, classroom, locations(name)")
-      .eq("tenant_id", tenantId)
-      .order("full_name"),
-    supabase.from("child_balance_status").select("child_id, balance_status").eq("tenant_id", tenantId),
-  ]);
+  const { data: children } = await supabase
+    .from("child_balance_status")
+    .select("child_id, full_name, classroom, location_name, balance_status")
+    .eq("tenant_id", tenantId)
+    .order("full_name");
 
-  const balanceByChild = new Map((balanceRows ?? []).map((b) => [b.child_id, b.balance_status]));
-
-  const rows = (children ?? []).map((c) => {
-    const location = Array.isArray(c.locations) ? c.locations[0] : c.locations;
-    return {
-      id: c.id,
-      name: c.full_name,
-      classroom: c.classroom,
-      locationName: location?.name ?? "Unassigned",
-      overdue: balanceByChild.get(c.id) === "overdue",
-    };
-  });
+  const rows = (children ?? []).map((c) => ({
+    id: c.child_id,
+    name: c.full_name,
+    classroom: c.classroom,
+    locationName: c.location_name ?? "Unassigned",
+    overdue: c.balance_status === "overdue",
+  }));
 
   return (
     <div className="max-w-[720px]">

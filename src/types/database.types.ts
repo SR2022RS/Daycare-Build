@@ -1269,6 +1269,9 @@ export interface Database {
           child_id: string;
           tenant_id: string;
           balance_status: "overdue" | "current";
+          full_name: string;
+          classroom: string | null;
+          location_name: string | null;
         };
         Relationships: [];
       };
