@@ -227,6 +227,10 @@ begin
       )
       values (
         p_tenant_id, v_child.location_id, v_guardian_id, v_period_start, v_period_end,
+        -- Uniform 7-day offset for every cadence, by design -- per-cadence
+        -- due dates (e.g. a longer grace window for monthly invoices) are an
+        -- explicit spec non-goal, not an oversight. Revisit here if that
+        -- ever changes.
         v_period_start + 7
       )
       on conflict (guardian_id, period_start, period_end) where status <> 'void'
@@ -324,7 +328,20 @@ grant execute on function public.generate_recurring_charges(uuid, date) to authe
 -- pg_cron is new here: no prior migration enables it. Runs daily at 06:00 UTC
 -- and lets generate_recurring_charges_impl decide whether today actually
 -- starts a period for each child's cadence.
-create extension if not exists pg_cron with schema extensions;
+--
+-- Unlike pgcrypto (installed `with schema extensions` elsewhere in this
+-- repo -- see 20260804090000_pin_login.sql), pg_cron is NOT relocatable: its
+-- control file hardcodes schema `cron`, so `with schema extensions` doesn't
+-- move it there -- it makes the CREATE EXTENSION statement itself fail
+-- ("extension \"pg_cron\" must be installed in schema \"cron\""), aborting
+-- this entire migration (including recalc_invoice_totals, both generator
+-- functions, and every revoke above) before `cron.schedule(...)` below is
+-- ever reached. Installing with no schema clause lets it land in its
+-- required `cron` schema, which is what `cron.schedule` on the line below
+-- actually resolves against. pg_cron may also need enabling in the Supabase
+-- dashboard (Database → Extensions) before this statement succeeds if it
+-- isn't already allow-listed for the project.
+create extension if not exists pg_cron;
 
 -- Iterates every tenant and calls the internal implementation directly,
 -- bypassing the director/tenant guard on the public wrapper -- that's the
