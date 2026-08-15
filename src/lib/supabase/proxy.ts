@@ -46,7 +46,12 @@ const PROTECTED_EXCEPTIONS = ["/intensive/registrations"];
 // The portal and the funnel are one deployment, so the same app answers on
 // both -- these hosts just land on /intensive instead of the staff portal.
 // Add the marketing domain here once it moves off *.vercel.app.
-const FUNNEL_HOSTS = ["daycareownerintensive.vercel.app"];
+const FUNNEL_HOSTS = [
+  "intensive.amazinkidsparadiseacademy.com",
+  // Kept as a working fallback while the subdomain's DNS is set up, and as
+  // a stable host for testing the funnel without touching the live domain.
+  "daycareownerintensive.vercel.app",
+];
 
 export async function updateSession(request: NextRequest) {
   // Handled before the Supabase client is built: /intensive is a public,
