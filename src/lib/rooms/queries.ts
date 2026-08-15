@@ -62,7 +62,22 @@ export async function getWaitlist(
     enrolledByRoom.set(key, (enrolledByRoom.get(key) ?? 0) + 1);
   }
 
-  const waitingByRoom = new Map<string | null, WaitlistChild[]>();
+  // rooms was queried with is_active = true, so a child whose room_id
+  // points at a room that has since been soft-deactivated has a room_id
+  // that will match no group built below. That's expected, not a data
+  // error: rooms are soft-deactivated (is_active = false) rather than
+  // deleted -- the FK is ON DELETE SET NULL, so an outright-deleted room
+  // already lands in the null key, but a deactivated one keeps its id.
+  // Task 8's child-edit form also lets a director set room_id directly on
+  // a waitlisted child, so "waiting on a room that later closes" is a
+  // normal path, not just a deletion race. Route both the null key and any
+  // orphaned-room rows into one Unassigned list, built here in the same
+  // pass so it stays in the query's longest-waiting-first order rather
+  // than being re-merged from separate map buckets afterward.
+  const activeRoomIds = new Set((rooms ?? []).map((r) => r.id));
+
+  const waitingByRoom = new Map<string, WaitlistChild[]>();
+  const unassigned: WaitlistChild[] = [];
   for (const row of waiting ?? []) {
     const child: WaitlistChild = {
       id: row.id,
@@ -72,9 +87,13 @@ export async function getWaitlist(
       waitlistedAt: row.waitlisted_at,
       desiredStartDate: row.desired_start_date,
     };
-    const list = waitingByRoom.get(row.room_id);
-    if (list) list.push(child);
-    else waitingByRoom.set(row.room_id, [child]);
+    if (row.room_id !== null && activeRoomIds.has(row.room_id)) {
+      const list = waitingByRoom.get(row.room_id);
+      if (list) list.push(child);
+      else waitingByRoom.set(row.room_id, [child]);
+    } else {
+      unassigned.push(child);
+    }
   }
 
   const groups: WaitlistGroup[] = (rooms ?? []).map((r) => {
@@ -88,8 +107,6 @@ export async function getWaitlist(
     };
   });
 
-  // Families waiting with no room yet are real and must not be dropped.
-  const unassigned = waitingByRoom.get(null) ?? [];
   if (unassigned.length > 0) {
     groups.push({
       roomId: null,

@@ -78,11 +78,23 @@ export async function addToWaitlist(formData: FormData) {
   if (typeof childId !== "string" || !childId) return;
 
   const supabase = await createClient();
-  await supabase
+
+  // RLS blocks rather than errors, so a blocked update returns zero rows --
+  // same reasoning as enrollFromWaitlist above and voidCharge in
+  // billing/actions.ts. This action has no useActionState return channel
+  // today (it's wired as a plain <form action={...}>), so a blocked write
+  // (stale childId, cross-tenant, deleted child) has nothing to surface a
+  // message through; the fix here is only to stop revalidating paths for a
+  // write that never landed, not to invent a new signature.
+  const { data, error } = await supabase
     .from("children")
     .update({ status: "waitlisted", waitlisted_at: todayISO() })
     .eq("id", childId)
-    .eq("tenant_id", session.profile.tenantId);
+    .eq("tenant_id", session.profile.tenantId)
+    .select("id")
+    .maybeSingle();
+
+  if (error || !data) return;
 
   revalidatePath("/waitlist");
   revalidatePath("/children");
