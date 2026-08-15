@@ -32,6 +32,7 @@ export type SupportTicketStatus = "open" | "in_progress" | "resolved" | "closed"
 export type ChargeType = "tuition" | "fee" | "credit" | "adjustment";
 export type InvoiceStatus = "open" | "partial" | "paid" | "void";
 export type PaymentMethod = "cash" | "check" | "zelle" | "venmo" | "other" | "stripe";
+export type IntensivePaymentStatus = "pending" | "paid" | "refunded" | "failed";
 
 export interface Database {
   public: {
@@ -1186,6 +1187,38 @@ export interface Database {
           transferred_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["room_transfers"]["Insert"]>;
+        Relationships: [];
+      };
+      intensive_registrations: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          first_name: string;
+          last_name: string;
+          email: string;
+          amount_cents: number;
+          currency: string;
+          status: IntensivePaymentStatus;
+          checkout_session_id: string;
+          payment_intent_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          first_name: string;
+          last_name: string;
+          email: string;
+          amount_cents: number;
+          currency?: string;
+          status?: IntensivePaymentStatus;
+          checkout_session_id: string;
+          payment_intent_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["intensive_registrations"]["Insert"]>;
         Relationships: [];
       };
       support_tickets: {

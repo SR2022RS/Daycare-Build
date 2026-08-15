@@ -16,7 +16,31 @@ const AUTH_PATHS = ["/login", "/signup", "/forgot-password"];
 // verifyOtp just established -- if either were in AUTH_PATHS, the
 // user&&isAuthPath bounce below would redirect the visitor to /dashboard
 // mid-flow and they'd never reach the "set a new password" form.
-const PUBLIC_PATHS = [...AUTH_PATHS, "/forms/fill", "/auth/confirm", "/reset-password"];
+// /kiosk is the shared-tablet time clock -- no login, authorized purely by
+// the device token in the URL plus a staff PIN entered on the pad (see
+// lib/kiosk/actions.ts). Same reasoning as /forms/fill.
+// /intensive is the public sales funnel for the paid owner intensive --
+// marketing, so it must be reachable (and indexable) with no account at all.
+// Like /forms/fill, a logged-in visitor should still be able to view it.
+const PUBLIC_PATHS = [
+  ...AUTH_PATHS,
+  "/forms/fill",
+  "/auth/confirm",
+  "/reset-password",
+  "/kiosk",
+  "/intensive",
+  // Stripe posts here server-to-server with no cookie. Without this the
+  // proxy would 307 every payment event to /login and seats would silently
+  // never be recorded. Authorized by webhook signature, not by session --
+  // see app/api/stripe/webhook/route.ts.
+  "/api/stripe/webhook",
+];
+
+// Carved back out of the public tree: /intensive/registrations is the
+// director's list of who paid, and it happens to live under a public prefix.
+// The page itself calls requireRole() -- this is the second lock, not the
+// only one.
+const PROTECTED_EXCEPTIONS = ["/intensive/registrations"];
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -52,7 +76,8 @@ export async function updateSession(request: NextRequest) {
   const user = data?.claims;
 
   const pathname = request.nextUrl.pathname;
-  const isPublicPath = PUBLIC_PATHS.some((path) => pathname.startsWith(path));
+  const isException = PROTECTED_EXCEPTIONS.some((path) => pathname.startsWith(path));
+  const isPublicPath = !isException && PUBLIC_PATHS.some((path) => pathname.startsWith(path));
   const isAuthPath = AUTH_PATHS.some((path) => pathname.startsWith(path));
 
   if (!user && !isPublicPath) {
