@@ -727,7 +727,8 @@ export interface Database {
           id: string;
           tenant_id: string;
           location_id: string;
-          child_id: string;
+          child_id: string | null;
+          guardian_id: string | null;
           invoice_id: string | null;
           type: ChargeType;
           period_start: string | null;
@@ -739,12 +740,14 @@ export interface Database {
           void: boolean;
           voided_at: string | null;
           created_at: string;
+          source_invoice_id: string | null;
         };
         Insert: {
           id?: string;
           tenant_id: string;
           location_id: string;
-          child_id: string;
+          child_id?: string | null;
+          guardian_id?: string | null;
           invoice_id?: string | null;
           type: ChargeType;
           period_start?: string | null;
@@ -756,6 +759,7 @@ export interface Database {
           void?: boolean;
           voided_at?: string | null;
           created_at?: string;
+          source_invoice_id?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["charges"]["Insert"]>;
         Relationships: [

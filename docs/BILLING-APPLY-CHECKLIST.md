@@ -12,6 +12,8 @@ order and do not skip any:
 - `supabase/migrations/20260814120300_billing_recalc_triggers.sql`
 - `supabase/migrations/20260814120400_child_roster_view.sql`
 - `supabase/migrations/20260814120500_roster_location_scope.sql`
+- `supabase/migrations/20260814120600_overpayment_credits.sql`
+- `supabase/migrations/20260814120700_attach_pending_credits.sql`
 
 ## 0. pg_cron may need enabling first
 
@@ -522,3 +524,105 @@ existing checks above (sections 1-9) exercise the logic with hand-picked
 test tenants/children, but this is the first point where the ~29 real
 families on the live tenant see charges generated against their live
 guardians.
+
+## 11. Overpayment credits (spec §91/§141)
+
+`20260814120600_overpayment_credits.sql` adds `charges.guardian_id` and
+`charges.source_invoice_id`, drops the `not null` on `charges.child_id`, and
+adds `charges_child_or_guardian` (every charge has a child or a guardian,
+never neither) plus the `charges_source_invoice_key` partial unique index
+(at most one live credit per source invoice).
+`20260814120700_attach_pending_credits.sql` replaces
+`generate_recurring_charges_impl` to also attach any pending credit for a
+guardian onto their newly-resolved invoice each run. This logic is entirely
+in SQL/trigger territory and cannot be exercised by Vitest — verify it here,
+against a real database, before trusting it in production. `applyOverpaymentCredit`
+in `src/lib/billing/actions.ts` is the only insert path for a credit charge;
+everything below assumes it (or an equivalent manual insert) was used to
+create the credit.
+
+**11a. Double-applying a credit yields exactly ONE credit row.** Find (or
+create, by recording a payment larger than an invoice's `total_amount`) an
+overpaid invoice, then click "Apply $X.XX as a credit" on
+`/billing/<invoiceId>` twice in a row (or simulate the race directly in SQL):
+
+```sql
+select id, source_invoice_id, parent_amount, void
+from public.charges
+where source_invoice_id = '<OVERPAID_INVOICE_ID>' and type = 'credit';
+```
+
+Expected: **exactly one** row, `void = false`, `parent_amount` equal to the
+negative of the overpayment excess. The second application attempt should
+have surfaced "A credit has already been applied for this overpayment."
+(the app's 23505 handling), not a generic error, and not a second row —
+`charges_source_invoice_key` is what makes the second insert fail at the
+database layer regardless of what the app does with the error.
+
+**11b. A credit stays unattached until a generation run, then attaches to
+the guardian's new invoice.** Immediately after applying a credit:
+
+```sql
+select id, guardian_id, invoice_id, parent_amount
+from public.charges
+where source_invoice_id = '<OVERPAID_INVOICE_ID>' and type = 'credit';
+```
+
+Expected: `invoice_id is null` — the credit is pending, not yet on any
+invoice. `/billing/guardians/<guardianId>` should show "Pending credit:
+$X.XX — applies to their next invoice" for this amount. Then run
+`generate_recurring_charges('<TENANT_ID>'::uuid, '<NEXT_PERIOD_START>'::date)`
+for a date that opens (or reuses) an invoice for this same guardian, and
+re-run the query above:
+
+Expected: `invoice_id` now points at the guardian's newly-generated invoice
+for that period, and the pending-credit line on the guardian's balance page
+is gone (the credit is now reflected in that invoice's total instead).
+
+**11c. Attachment recalculates the invoice total correctly.** Before and
+after the generation run from 11b:
+
+```sql
+select id, total_amount, amount_paid, status
+from public.invoices
+where id = '<NEW_INVOICE_ID>';
+```
+
+Expected: `total_amount` equals the sum of that invoice's live charges'
+`parent_amount` — the new tuition charge(s) plus the (negative)
+credit — matching what `recalc_invoice_totals` computes, with no manual
+recalc call involved (it's called automatically inside
+`generate_recurring_charges_impl` after the credit-attachment `update`, and
+again via the `charges_recalc_invoice_totals` trigger that fires on that
+same `update` — both should agree and settle on the same final total).
+
+**11d. A credit larger than the new invoice's tuition leaves it `paid`, not
+negative.** Engineer (or find) a case where a guardian's pending credit
+exceeds the tuition charge(s) on their next generated invoice — e.g. a large
+overpayment credit against a child with a small weekly rate. After the
+generation run attaches the credit:
+
+```sql
+select total_amount, amount_paid, status
+from public.invoices
+where id = '<NEW_INVOICE_ID>';
+```
+
+Expected: `total_amount <= 0` and `status = 'paid'` — `recalc_invoice_totals`'s
+`v_total <= 0` branch (20260814120100_billing_generation.sql) forces `paid`
+whenever the live charges sum to zero or less, so the invoice never reads as
+a negative balance owed to the family. Confirm no downstream balance figure
+(`/billing`, `/billing/revenue`, `/dashboard`, the guardian's balance page)
+shows a negative number for this invoice or this family.
+
+**11e. `charges_child_or_guardian` and nullable `child_id` didn't break
+anything else.** Confirm ordinary (non-credit) charges are unaffected:
+
+```sql
+select count(*) from public.charges where child_id is null and type <> 'credit';
+```
+
+Expected: `0` — nothing except a credit charge should ever have a null
+`child_id`. Also confirm the invoice detail page renders a credit charge's
+line item as "Family credit" (not "Unknown") and every other child-scoped
+line item still shows the correct child's name.
