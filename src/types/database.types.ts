@@ -7,7 +7,7 @@
 export type AppRole = "platform_admin" | "director" | "staff";
 export type TrainingProgressStatus = "not_started" | "in_progress" | "completed";
 export type WriteUpSeverity = "minor" | "moderate" | "severe";
-export type AttendanceSource = "web" | "mobile" | "admin";
+export type AttendanceSource = "web" | "mobile" | "admin" | "kiosk";
 export type CredentialType =
   | "cari"
   | "chri"
@@ -25,6 +25,13 @@ export type SopAudience = "all" | "staff" | "site_lead";
 export type ContentBlockType = "video" | "text" | "file";
 export type FormSendStatus = "sent" | "completed" | "expired";
 export type FormAccessOutcome = "viewed" | "not_found" | "expired" | "submitted";
+export type KioskPinOutcome = "success" | "invalid_pin" | "locked";
+export type SupportTicketCategory = "question" | "bug" | "feature_request" | "account_access" | "other";
+export type SupportTicketPriority = "low" | "medium" | "high" | "urgent";
+export type SupportTicketStatus = "open" | "in_progress" | "resolved" | "closed";
+export type ChargeType = "tuition" | "fee" | "credit" | "adjustment";
+export type InvoiceStatus = "open" | "partial" | "paid" | "void";
+export type PaymentMethod = "cash" | "check" | "zelle" | "venmo" | "other" | "stripe";
 
 export interface Database {
   public: {
@@ -580,6 +587,7 @@ export interface Database {
           funding_type: FundingType;
           schedule: ChildSchedule;
           weekly_rate: number | null;
+          subsidy_weekly_amount: number | null;
           rate_note: string | null;
           cadence: BillingCadence;
           start_date: string | null;
@@ -597,6 +605,7 @@ export interface Database {
           funding_type?: FundingType;
           schedule?: ChildSchedule;
           weekly_rate?: number | null;
+          subsidy_weekly_amount?: number | null;
           rate_note?: string | null;
           cadence?: BillingCadence;
           start_date?: string | null;
@@ -669,6 +678,133 @@ export interface Database {
             columns: ["guardian_id"];
             isOneToOne: false;
             referencedRelation: "guardians";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      invoices: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          location_id: string;
+          guardian_id: string;
+          period_start: string;
+          period_end: string;
+          status: InvoiceStatus;
+          total_amount: number;
+          amount_paid: number;
+          due_date: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          location_id: string;
+          guardian_id: string;
+          period_start: string;
+          period_end: string;
+          status?: InvoiceStatus;
+          total_amount?: number;
+          amount_paid?: number;
+          due_date: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["invoices"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "invoices_guardian_id_fkey";
+            columns: ["guardian_id"];
+            isOneToOne: false;
+            referencedRelation: "guardians";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      charges: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          location_id: string;
+          child_id: string;
+          invoice_id: string | null;
+          type: ChargeType;
+          period_start: string | null;
+          period_end: string | null;
+          description: string;
+          subsidy_amount: number;
+          parent_amount: number;
+          created_by: string | null;
+          void: boolean;
+          voided_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          location_id: string;
+          child_id: string;
+          invoice_id?: string | null;
+          type: ChargeType;
+          period_start?: string | null;
+          period_end?: string | null;
+          description: string;
+          subsidy_amount?: number;
+          parent_amount?: number;
+          created_by?: string | null;
+          void?: boolean;
+          voided_at?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["charges"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "charges_child_id_fkey";
+            columns: ["child_id"];
+            isOneToOne: false;
+            referencedRelation: "children";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "charges_invoice_id_fkey";
+            columns: ["invoice_id"];
+            isOneToOne: false;
+            referencedRelation: "invoices";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      payments: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          invoice_id: string;
+          amount: number;
+          method: PaymentMethod;
+          paid_at: string;
+          recorded_by: string;
+          note: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          invoice_id: string;
+          amount: number;
+          method: PaymentMethod;
+          paid_at: string;
+          recorded_by: string;
+          note?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["payments"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "payments_invoice_id_fkey";
+            columns: ["invoice_id"];
+            isOneToOne: false;
+            referencedRelation: "invoices";
             referencedColumns: ["id"];
           },
         ];
@@ -890,9 +1026,271 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["form_send_access_log"]["Insert"]>;
         Relationships: [];
       };
+      profile_pins: {
+        Row: {
+          profile_id: string;
+          tenant_id: string;
+          pin_hash: string;
+          failed_attempts: number;
+          locked_until: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          profile_id: string;
+          tenant_id: string;
+          pin_hash: string;
+          failed_attempts?: number;
+          locked_until?: string | null;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["profile_pins"]["Insert"]>;
+        Relationships: [];
+      };
+      rooms: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          location_id: string;
+          name: string;
+          is_active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          location_id: string;
+          name: string;
+          is_active?: boolean;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["rooms"]["Insert"]>;
+        Relationships: [];
+      };
+      kiosk_devices: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          location_id: string;
+          name: string;
+          device_token: string;
+          is_active: boolean;
+          failed_attempts: number;
+          locked_until: string | null;
+          last_seen_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          location_id: string;
+          name: string;
+          device_token?: string;
+          is_active?: boolean;
+          failed_attempts?: number;
+          locked_until?: string | null;
+          last_seen_at?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["kiosk_devices"]["Insert"]>;
+        Relationships: [];
+      };
+      kiosk_sessions: {
+        Row: {
+          id: string;
+          device_id: string;
+          profile_id: string;
+          tenant_id: string;
+          location_id: string;
+          expires_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          device_id: string;
+          profile_id: string;
+          tenant_id: string;
+          location_id: string;
+          expires_at?: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["kiosk_sessions"]["Insert"]>;
+        Relationships: [];
+      };
+      kiosk_pin_attempts: {
+        Row: {
+          id: string;
+          device_id: string;
+          profile_id: string | null;
+          outcome: KioskPinOutcome;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          device_id: string;
+          profile_id?: string | null;
+          outcome: KioskPinOutcome;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["kiosk_pin_attempts"]["Insert"]>;
+        Relationships: [];
+      };
+      attendance_breaks: {
+        Row: {
+          id: string;
+          attendance_id: string;
+          started_at: string;
+          ended_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          attendance_id: string;
+          started_at?: string;
+          ended_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["attendance_breaks"]["Insert"]>;
+        Relationships: [];
+      };
+      room_transfers: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          location_id: string;
+          staff_id: string;
+          room_id: string;
+          transferred_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          location_id: string;
+          staff_id: string;
+          room_id: string;
+          transferred_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["room_transfers"]["Insert"]>;
+        Relationships: [];
+      };
+      support_tickets: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          created_by: string;
+          category: SupportTicketCategory;
+          priority: SupportTicketPriority;
+          status: SupportTicketStatus;
+          subject: string;
+          description: string;
+          created_at: string;
+          updated_at: string;
+          resolved_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          created_by: string;
+          category?: SupportTicketCategory;
+          priority?: SupportTicketPriority;
+          status?: SupportTicketStatus;
+          subject: string;
+          description: string;
+          created_at?: string;
+          updated_at?: string;
+          resolved_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["support_tickets"]["Insert"]>;
+        Relationships: [];
+      };
+      support_ticket_messages: {
+        Row: {
+          id: string;
+          ticket_id: string;
+          tenant_id: string;
+          author_id: string;
+          body: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          ticket_id: string;
+          tenant_id: string;
+          author_id: string;
+          body: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["support_ticket_messages"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "support_ticket_messages_ticket_id_fkey";
+            columns: ["ticket_id"];
+            isOneToOne: false;
+            referencedRelation: "support_tickets";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      support_ticket_attachments: {
+        Row: {
+          id: string;
+          ticket_id: string;
+          tenant_id: string;
+          file_path: string;
+          file_name: string;
+          content_type: string | null;
+          size_bytes: number | null;
+          uploaded_by: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          ticket_id: string;
+          tenant_id: string;
+          file_path: string;
+          file_name: string;
+          content_type?: string | null;
+          size_bytes?: number | null;
+          uploaded_by: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["support_ticket_attachments"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "support_ticket_attachments_ticket_id_fkey";
+            columns: ["ticket_id"];
+            isOneToOne: false;
+            referencedRelation: "support_tickets";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
-    Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Views: {
+      child_balance_status: {
+        Row: {
+          child_id: string;
+          tenant_id: string;
+          balance_status: string;
+        };
+        Relationships: [];
+      };
+    };
+    Functions: {
+      admin_set_staff_pin: {
+        Args: { p_staff_id: string; p_pin: string };
+        Returns: undefined;
+      };
+      kiosk_identify_pin: {
+        Args: { p_device_token: string; p_pin: string };
+        Returns: string | null;
+      };
+      generate_recurring_charges: {
+        Args: { p_tenant_id: string; p_on: string };
+        Returns: number;
+      };
+      recalc_invoice_totals: {
+        Args: { p_invoice_id: string };
+        Returns: undefined;
+      };
+    };
     Enums: {
       app_role: AppRole;
       credential_type: CredentialType;
@@ -903,6 +1301,13 @@ export interface Database {
       incident_status: IncidentStatus;
       sop_audience: SopAudience;
       content_block_type: ContentBlockType;
+      kiosk_pin_outcome: KioskPinOutcome;
+      support_ticket_category: SupportTicketCategory;
+      support_ticket_priority: SupportTicketPriority;
+      support_ticket_status: SupportTicketStatus;
+      charge_type: ChargeType;
+      invoice_status: InvoiceStatus;
+      payment_method: PaymentMethod;
     };
     CompositeTypes: Record<string, never>;
   };
