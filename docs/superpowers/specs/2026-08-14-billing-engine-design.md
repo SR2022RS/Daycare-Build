@@ -128,6 +128,8 @@ Nav gains a new **Billing** section (director/platform_admin only), placed betwe
 - `/children/[childId]` — add the `subsidy_weekly_amount` field next to `weekly_rate`/`cadence`; add a "View billing" link into that child's guardian balance (director/platform_admin view) or a "Balance: Current/Overdue" badge with no dollar amount (staff view).
 - `/dashboard` — one new stat tile, "Outstanding balance" (or overdue invoice count), matching the existing pattern of "Not cleared for solo supervision" / "Credentials expiring" tiles.
 
+**Correction from plan-grounding:** staff currently have no access to `/children` at all — no nav entry, and the page is gated with `requireRole(["director", "platform_admin"])`. Delivering the staff balance badge requires opening a minimal staff view of `/children/[childId]`: a new "Children" nav entry for staff, and changing the page's gate to `verifySession()` with role-branching (the same pattern `/dashboard` already uses for its director vs. staff views) — staff get a stripped-down read-only card (name, room, balance badge), directors keep the full existing view unchanged.
+
 ## Security / RLS
 
 All new tables follow the existing `children`/`guardians` pattern exactly: `tenant_id = current_tenant_id() and current_role() in ('director', 'platform_admin')` for both `select` and write policies. The one exception is the `child_balance_status` view, which additionally grants `staff` a `select`-only policy limited to the computed status column — never the underlying financial tables.
