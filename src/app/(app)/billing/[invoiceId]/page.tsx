@@ -57,6 +57,14 @@ export default async function InvoiceDetailPage({
   });
 
   const balance = invoice.total_amount - invoice.amount_paid;
+  // Spec §91/§141: an overpayment should become a credit-type charge on the
+  // guardian's next invoice -- that automatic credit path is deferred to the
+  // Stripe phase (spec's own future-work section). Until then, clamp the
+  // displayed balance at 0 (matching every other balance figure in the app,
+  // per queries.ts) and surface the excess explicitly so a director notices
+  // and can act on it manually via "Add charge" (credit).
+  const overpaid = invoice.amount_paid > invoice.total_amount;
+  const overpaidAmount = overpaid ? invoice.amount_paid - invoice.total_amount : 0;
 
   return (
     <div className="max-w-[1000px]">
@@ -75,7 +83,9 @@ export default async function InvoiceDetailPage({
           </p>
         </div>
         <div className="text-right">
-          <div className="text-2xl font-semibold text-gray-900 tabular-nums">${balance.toFixed(2)}</div>
+          <div className="text-2xl font-semibold text-gray-900 tabular-nums">
+            ${Math.max(balance, 0).toFixed(2)}
+          </div>
           <div className="text-xs text-gray-500">outstanding</div>
         </div>
         <span
@@ -86,6 +96,12 @@ export default async function InvoiceDetailPage({
           {INVOICE_STATUS_LABELS[invoice.status]}
         </span>
       </div>
+
+      {overpaid && (
+        <div className={`mb-4 rounded-xl px-4.5 py-3 text-[13px] font-medium ${TONE_CLASSES.amber}`}>
+          Overpaid by ${overpaidAmount.toFixed(2)} — add a credit to carry this forward.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.3fr_1fr]">
         <section className="overflow-hidden rounded-xl border border-gray-200 bg-white">

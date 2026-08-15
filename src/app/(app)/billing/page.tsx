@@ -3,8 +3,8 @@ import Link from "next/link";
 import { requireRole } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
 import { getInvoiceList } from "@/lib/billing/queries";
-import { generateNow } from "@/lib/billing/actions";
 import { InvoiceTable } from "@/components/billing/invoice-table";
+import { GenerateNowForm } from "@/components/billing/generate-now-form";
 
 export default async function BillingPage() {
   const session = await requireRole(["director", "platform_admin"]);
@@ -27,14 +27,7 @@ export default async function BillingPage() {
         >
           Revenue dashboard
         </Link>
-        <form action={generateNow}>
-          <button
-            type="submit"
-            className="rounded-md bg-[var(--brand-accent)] px-4 py-2 text-sm font-semibold text-[#06323A] hover:opacity-90"
-          >
-            Generate now
-          </button>
-        </form>
+        <GenerateNowForm />
       </div>
 
       <InvoiceTable rows={rows} />

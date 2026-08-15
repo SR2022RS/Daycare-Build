@@ -91,6 +91,7 @@ export async function getFamilyBalance(
 }
 
 export interface AgingRow {
+  invoiceId: string;
   guardianId: string;
   guardianName: string;
   amount: number;
@@ -147,9 +148,14 @@ export async function getRevenueSummary(
         (new Date(today).getTime() - new Date(i.due_date).getTime()) / (24 * 60 * 60 * 1000),
       );
       return {
+        invoiceId: i.id,
         guardianId: i.guardian_id,
         guardianName: guardian?.full_name ?? "Unknown",
-        amount: Math.round((i.total_amount - i.amount_paid) * 100) / 100,
+        // Clamp at 0 -- matches getFamilyBalance/getOutstandingTotal so an
+        // overpaid open invoice (amount_paid > total_amount, e.g. a partial
+        // payment posted before a later void reduced the total) never
+        // renders as a negative "overdue" amount.
+        amount: Math.max(Math.round((i.total_amount - i.amount_paid) * 100) / 100, 0),
         daysOverdue,
       };
     })

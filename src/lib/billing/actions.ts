@@ -47,6 +47,23 @@ export async function recordPayment(
 
   const supabase = await createClient();
 
+  // invoiceId arrives from a hidden form field, so it must be verified to
+  // belong to this director's own tenant before inserting -- payments_write
+  // only checks the payment row's own tenant_id (supplied by us, below,
+  // from the session, so it always passes), not that invoiceId actually
+  // points at an invoice in that tenant. Without this pre-check, a director
+  // holding another tenant's invoice UUID could post a payment against it
+  // and the recalc trigger would rewrite that tenant's invoice totals.
+  // Mirrors the ownership check in addManualCharge above.
+  const { data: invoice } = await supabase
+    .from("invoices")
+    .select("id")
+    .eq("id", invoiceId)
+    .eq("tenant_id", session.profile.tenantId)
+    .maybeSingle();
+
+  if (!invoice) return { message: "You don't have access to this invoice." };
+
   const { data, error } = await supabase
     .from("payments")
     .insert({
@@ -253,7 +270,10 @@ export async function voidCharge(formData: FormData) {
   revalidatePath("/billing/revenue");
 }
 
-export async function generateNow(formData: FormData) {
+export async function generateNow(
+  _state: BillingActionState,
+  formData: FormData,
+): Promise<BillingActionState> {
   const session = await requireRole(["director", "platform_admin"]);
 
   // Defaults to today; the SQL function decides whether today actually
@@ -262,12 +282,24 @@ export async function generateNow(formData: FormData) {
   const on = str(formData, "on") ?? todayISO();
 
   const supabase = await createClient();
-  await supabase.rpc("generate_recurring_charges", {
+  const { data, error } = await supabase.rpc("generate_recurring_charges", {
     p_tenant_id: session.profile.tenantId,
     p_on: on,
   });
 
+  // The SQL wrapper `raise exception`s on an auth failure (wrong tenant or
+  // non-director/platform_admin caller -- see
+  // 20260814120100_billing_generation.sql), which supabase-js surfaces as
+  // `error`, not a thrown JS exception. Ignoring both the error and the
+  // returned count (the previous version of this action did) turned a real
+  // failure into a silent no-op with no feedback to the director who clicked
+  // the button.
+  if (error) return { message: "Couldn't generate charges. Try again." };
+
   revalidatePath("/billing");
   revalidatePath("/billing/revenue");
   revalidatePath("/dashboard");
+
+  const count = data ?? 0;
+  return { message: count > 0 ? `Generated ${count} charge${count === 1 ? "" : "s"}.` : "Nothing to generate today." };
 }

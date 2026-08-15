@@ -57,7 +57,7 @@ export default async function RevenuePage() {
         </div>
         {summary.aging.map((row) => (
           <Link
-            key={`${row.guardianId}-${row.daysOverdue}`}
+            key={row.invoiceId}
             href={`/billing/guardians/${row.guardianId}`}
             className="flex items-center justify-between gap-3 border-b border-gray-100 px-4.5 py-3 hover:bg-gray-50"
           >
