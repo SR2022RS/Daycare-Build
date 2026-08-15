@@ -101,7 +101,7 @@ A SQL function, `generate_recurring_charges()`, runs daily via `pg_cron`.
 **Period anchoring (calendar-based):**
 - Weekly: Monday–Sunday
 - Monthly: 1st–end of month
-- Biweekly: computed from enrollment-date parity (which Mondays are "on-cycle" for a given child, based on `start_date`)
+- Biweekly: fixed to the month's 1st and 3rd Monday for every biweekly child (matches the existing `CADENCE_LABELS.biweekly = "Bi-weekly (1st & 3rd Mondays)"` label already shown in the child detail page — discovered during plan-grounding, corrected here rather than left inconsistent with shipped UI copy). Period A runs 1st Monday through the day before the 3rd Monday (13 days); Period B runs 3rd Monday through the day before next month's 1st Monday (14–18 days depending on the month).
 
 **Per active child with `weekly_rate` set, each run:**
 1. Compute today's period boundaries for the child's `cadence`.
