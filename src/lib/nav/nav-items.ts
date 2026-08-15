@@ -11,6 +11,7 @@ import {
   BookMarked,
   LifeBuoy,
   Receipt,
+  ClipboardList,
 } from "lucide-react";
 
 import type { AppRole } from "@/types/database.types";
@@ -29,7 +30,10 @@ export function getNavSections(role: AppRole): NavSection[] {
       },
       {
         label: "Children",
-        items: [{ title: "Children & guardians", href: "/children", icon: Baby }],
+        items: [
+          { title: "Children & guardians", href: "/children", icon: Baby },
+          { title: "Waitlist", href: "/waitlist", icon: ClipboardList },
+        ],
       },
       {
         label: "Billing",

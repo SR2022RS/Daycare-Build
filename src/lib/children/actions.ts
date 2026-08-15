@@ -74,6 +74,9 @@ export async function updateChild(formData: FormData) {
       rate_note: str(formData, "rateNote"),
       cadence: (str(formData, "cadence") ?? "weekly") as BillingCadence,
       start_date: str(formData, "startDate"),
+      room_id: str(formData, "roomId"),
+      waitlisted_at: str(formData, "waitlistedAt"),
+      desired_start_date: str(formData, "desiredStartDate"),
       updated_at: new Date().toISOString(),
     })
     .eq("id", childId)

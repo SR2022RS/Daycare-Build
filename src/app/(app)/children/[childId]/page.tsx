@@ -20,17 +20,23 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
 
   const supabase = await createClient();
 
-  const [{ data: child }, { data: locations }, { data: guardianRows }] = await Promise.all([
+  const [{ data: child }, { data: locations }, { data: rooms }, { data: guardianRows }] = await Promise.all([
     supabase
       .from("children")
       .select(
-        "id, full_name, dob, classroom, status, funding_type, schedule, weekly_rate, subsidy_weekly_amount, rate_note, cadence, start_date, location_id",
+        "id, full_name, dob, classroom, status, funding_type, schedule, weekly_rate, subsidy_weekly_amount, rate_note, cadence, start_date, location_id, room_id, waitlisted_at, desired_start_date",
       )
       .eq("id", childId)
       .eq("tenant_id", session.profile.tenantId)
       .single(),
     supabase
       .from("locations")
+      .select("id, name")
+      .eq("tenant_id", session.profile.tenantId)
+      .eq("is_active", true)
+      .order("name"),
+    supabase
+      .from("rooms")
       .select("id, name")
       .eq("tenant_id", session.profile.tenantId)
       .eq("is_active", true)
@@ -139,9 +145,42 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
             <input
               name="classroom"
               defaultValue={child.classroom ?? ""}
-              placeholder="Classroom (optional)"
+              placeholder="Classroom (legacy — use Room above)"
               className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-[var(--brand-accent)] focus:outline-none"
             />
+            <label className="flex flex-col text-xs text-gray-500">
+              Room
+              <select
+                name="roomId"
+                defaultValue={child.room_id ?? ""}
+                className="mt-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-[var(--brand-accent)] focus:outline-none"
+              >
+                <option value="">Unassigned</option>
+                {(rooms ?? []).map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col text-xs text-gray-500">
+              Waitlisted on
+              <input
+                type="date"
+                name="waitlistedAt"
+                defaultValue={child.waitlisted_at ?? ""}
+                className="mt-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-[var(--brand-accent)] focus:outline-none"
+              />
+            </label>
+            <label className="flex flex-col text-xs text-gray-500">
+              Desired start date
+              <input
+                type="date"
+                name="desiredStartDate"
+                defaultValue={child.desired_start_date ?? ""}
+                className="mt-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-[var(--brand-accent)] focus:outline-none"
+              />
+            </label>
             <label className="flex flex-col text-xs text-gray-500">
               Status
               <select

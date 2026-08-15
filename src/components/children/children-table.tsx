@@ -26,15 +26,17 @@ function age(dob: string) {
 export function ChildrenTable({ rows, locations }: { rows: ChildRow[]; locations: string[] }) {
   const [search, setSearch] = useState("");
   const [location, setLocation] = useState("All");
+  const [status, setStatus] = useState("All");
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
       const matchesLocation = location === "All" || r.location === location;
       const matchesSearch = !q || r.name.toLowerCase().includes(q) || r.location.toLowerCase().includes(q);
-      return matchesLocation && matchesSearch;
+      const matchesStatus = status === "All" || r.status === status;
+      return matchesLocation && matchesSearch && matchesStatus;
     });
-  }, [rows, search, location]);
+  }, [rows, search, location, status]);
 
   const filters = ["All", ...locations];
 
@@ -60,6 +62,16 @@ export function ChildrenTable({ rows, locations }: { rows: ChildRow[]; locations
             {f}
           </button>
         ))}
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          className="h-[34px] rounded-lg border border-gray-200 bg-white px-2 text-[13px] text-gray-700 outline-none focus:border-[var(--brand-accent)]"
+        >
+          <option value="All">All statuses</option>
+          <option value="active">Active</option>
+          <option value="waitlisted">Waitlisted</option>
+          <option value="inactive">Inactive</option>
+        </select>
         <span className="ml-auto text-xs text-gray-400">
           Showing {filtered.length} of {rows.length}
         </span>
