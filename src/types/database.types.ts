@@ -777,6 +777,20 @@ export interface Database {
             referencedRelation: "invoices";
             referencedColumns: ["id"];
           },
+          {
+            foreignKeyName: "charges_guardian_id_fkey";
+            columns: ["guardian_id"];
+            isOneToOne: false;
+            referencedRelation: "guardians";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "charges_source_invoice_id_fkey";
+            columns: ["source_invoice_id"];
+            isOneToOne: false;
+            referencedRelation: "invoices";
+            referencedColumns: ["id"];
+          },
         ];
       };
       payments: {

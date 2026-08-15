@@ -14,6 +14,7 @@ order and do not skip any:
 - `supabase/migrations/20260814120500_roster_location_scope.sql`
 - `supabase/migrations/20260814120600_overpayment_credits.sql`
 - `supabase/migrations/20260814120700_attach_pending_credits.sql`
+- `supabase/migrations/20260814120800_guard_paid_invoice_credit_attach.sql`
 
 ## 0. pg_cron may need enabling first
 
@@ -534,10 +535,16 @@ never neither) plus the `charges_source_invoice_key` partial unique index
 (at most one live credit per source invoice).
 `20260814120700_attach_pending_credits.sql` replaces
 `generate_recurring_charges_impl` to also attach any pending credit for a
-guardian onto their newly-resolved invoice each run. This logic is entirely
-in SQL/trigger territory and cannot be exercised by Vitest — verify it here,
-against a real database, before trusting it in production. `applyOverpaymentCredit`
-in `src/lib/billing/actions.ts` is the only insert path for a credit charge;
+guardian onto their newly-resolved invoice each run.
+`20260814120800_guard_paid_invoice_credit_attach.sql` (fix round 1,
+Important) replaces it again to add one guard to that attach step: it now
+only attaches a credit to an invoice with `amount_paid = 0`, closing a
+double-credit path where attaching to an already-paid invoice created a
+fresh overpayment on it that the app would then let a director credit a
+second time. This logic is entirely in SQL/trigger territory and cannot be
+exercised by Vitest — verify it here, against a real database, before
+trusting it in production. `applyOverpaymentCredit` in
+`src/lib/billing/actions.ts` is the only insert path for a credit charge;
 everything below assumes it (or an equivalent manual insert) was used to
 create the credit.
 
@@ -626,3 +633,76 @@ Expected: `0` — nothing except a credit charge should ever have a null
 `child_id`. Also confirm the invoice detail page renders a credit charge's
 line item as "Family credit" (not "Unknown") and every other child-scoped
 line item still shows the correct child's name.
+
+**11f. Cross-tenant attach isolation.** This repo's repeat failure mode is a
+tenant filter that looks right but doesn't actually scope a query — prove it
+here rather than trusting the `and tenant_id = p_tenant_id` in the attach
+`update`. With two tenants present (A and B):
+
+```sql
+-- Create a pending credit for a guardian in tenant A (via
+-- applyOverpaymentCredit, or a manual insert with tenant_id/guardian_id set
+-- to a tenant A guardian and invoice_id null), then run generation for
+-- tenant B only:
+select public.generate_recurring_charges('<TENANT_B_ID>'::uuid, '<SOME_DATE>'::date);
+
+select id, tenant_id, guardian_id, invoice_id
+from public.charges
+where type = 'credit' and void = false and tenant_id = '<TENANT_A_ID>'::uuid;
+```
+
+Expected: tenant A's credit still has `invoice_id is null` — a tenant B
+generation run must never attach it, even if tenant B happened to share a
+guardian id by coincidence (it won't, but the query should prove tenant
+scoping, not just guardian scoping). Then run generation for tenant A with
+an eligible child/invoice and confirm the same credit *does* attach.
+
+**11g. Function-definition comparison — confirm the reproduction is exact
+apart from the intended diff.** Before applying `20260814120700` (or
+`20260814120800`), capture the currently-live definition:
+
+```sql
+select pg_get_functiondef('public.generate_recurring_charges_impl(uuid, date)'::regprocedure);
+```
+
+Save the output. After applying the migration, run the same query again and
+diff the two. Expected: the only differences are the credit-attach block
+(the `update public.charges ... where invoice_id is null` statement, plus —
+after `20260814120800` — its added `and exists (select 1 from
+public.invoices i where i.id = v_invoice_id and i.amount_paid = 0)` clause)
+and comments. Every clamp (`greatest`/`least` on `v_subsidy`/`v_parent`),
+every exception handler (`when unique_violation`), the proration math, and
+the final `revoke` line must be byte-identical to the version being
+replaced — if anything else moved, the reproduction lost or altered
+existing behavior and must not be trusted.
+
+**11h. A credit does NOT attach to an already-paid invoice.** The fix-round-1
+regression test for the Important finding above. Set up (or find) an
+invoice that is fully paid (`amount_paid = total_amount`, `status = 'paid'`)
+for a guardian who also has a pending credit from a *different*, unrelated
+overpayment:
+
+```sql
+select id, total_amount, amount_paid, status from public.invoices where id = '<PAID_INVOICE_ID>';
+select id, invoice_id from public.charges where id = '<PENDING_CREDIT_ID>' and type = 'credit';
+```
+
+Run generation for a date/tenant that resolves `<PAID_INVOICE_ID>` again for
+this guardian (e.g. a "Generate now" click mid-period reusing that same
+period's invoice), then re-check both:
+
+```sql
+select id, total_amount, amount_paid, status from public.invoices where id = '<PAID_INVOICE_ID>';
+select id, invoice_id from public.charges where id = '<PENDING_CREDIT_ID>' and type = 'credit';
+```
+
+Expected: `<PAID_INVOICE_ID>`'s `total_amount`/`amount_paid`/`status` are
+**unchanged**, and the credit's `invoice_id` is **still null** — the credit
+must not have attached, and the paid invoice must not have become newly
+overpaid. Confirm `/billing/<PAID_INVOICE_ID>` shows no amber overpayment
+banner. Then, separately, confirm the legitimate case still works: an
+**existing but unpaid** (`amount_paid = 0`) invoice for the same guardian
+should still receive the credit on the next generation run (this is exactly
+11b, re-run against a reused rather than brand-new invoice, to confirm the
+guard is keyed on `amount_paid`, not on "was this invoice created this
+run").
