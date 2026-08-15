@@ -592,6 +592,9 @@ export interface Database {
           rate_note: string | null;
           cadence: BillingCadence;
           start_date: string | null;
+          room_id: string | null;
+          waitlisted_at: string | null;
+          desired_start_date: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -610,6 +613,9 @@ export interface Database {
           rate_note?: string | null;
           cadence?: BillingCadence;
           start_date?: string | null;
+          room_id?: string | null;
+          waitlisted_at?: string | null;
+          desired_start_date?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -620,6 +626,13 @@ export interface Database {
             columns: ["location_id"];
             isOneToOne: false;
             referencedRelation: "locations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "children_room_id_fkey";
+            columns: ["room_id"];
+            isOneToOne: false;
+            referencedRelation: "rooms";
             referencedColumns: ["id"];
           },
         ];
@@ -1072,6 +1085,9 @@ export interface Database {
           location_id: string;
           name: string;
           is_active: boolean;
+          capacity: number | null;
+          min_age_months: number | null;
+          max_age_months: number | null;
           created_at: string;
         };
         Insert: {
@@ -1080,6 +1096,9 @@ export interface Database {
           location_id: string;
           name: string;
           is_active?: boolean;
+          capacity?: number | null;
+          min_age_months?: number | null;
+          max_age_months?: number | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["rooms"]["Insert"]>;
