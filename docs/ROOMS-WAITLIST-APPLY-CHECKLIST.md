@@ -1,9 +1,27 @@
 # Rooms & Waitlist — Post-Apply Checklist
 
+## HARD PRECONDITION — read before doing anything else
+
+`public.rooms` — the table this entire migration alters — is created by
+`supabase/migrations/20260813090000_kiosk_access.sql`. As of this writing
+that migration is **not in the repository**: it exists only as an
+uncommitted, untracked file in the working tree. An untracked file is not
+part of any commit, branch, or checkout — it applies nowhere until someone
+commits it.
+
+**`20260815120000_rooms_capacity_and_waitlist.sql` cannot be applied to any
+database until `20260813090000_kiosk_access.sql` is committed and applied
+first.** Every `alter table public.rooms ...` statement in this migration
+will fail outright — `relation "public.rooms" does not exist` — if run
+first. This is the single thing most likely to make the apply fail; check
+it before running anything below, every time, since "untracked" can silently
+change between when this checklist was written and when you run it.
+
 This migration was authored but never applied or run against any database
 (per controller ruling: the project isn't linked and the database is live
 production), and no page in this feature has ever rendered against real
-data. Run every check in this document yourself, in order, after applying:
+data. Once the precondition above is satisfied, run every check in this
+document yourself, in order, after applying:
 
 - `supabase/migrations/20260815120000_rooms_capacity_and_waitlist.sql`
 
@@ -31,10 +49,58 @@ those migrations extend (billing added `child_balance_status`, credit
 columns, etc.) and Section 8 below depends on `child_balance_status`
 existing. It must also apply after `20260813090000_kiosk_access.sql`
 (creates `public.rooms`) and `20260802224828_children_and_guardians.sql`
-(creates `public.children`) — both already true by timestamp order, since
-`20260815120000` sorts after both. Apply every pending migration in plain
-timestamp order and this is automatic; do not hand-pick this one out of
-sequence.
+(creates `public.children`).
+
+Unlike the billing migrations, `20260813090000_kiosk_access.sql` being
+applied first is **not automatic** — see the HARD PRECONDITION at the top
+of this document. It must be committed before it exists anywhere for
+timestamp ordering to apply to it at all. Once it is committed, apply every
+pending migration in plain timestamp order and the rest is automatic; do
+not hand-pick `20260815120000` out of sequence.
+
+## Rollback plan — if the migration half-applies
+
+`20260815120000_rooms_capacity_and_waitlist.sql` has no transaction wrapper
+and every statement in it is unguarded (no `if not exists` / `if exists`),
+so if it errors partway through — most likely on the precondition failure
+above, but also possible from a constraint or index name collision — some
+statements will have committed and others won't. Do not just re-run the
+file; inspect what landed first (`\d public.rooms`, `\d public.children`)
+against the statement list in the migration, then either hand-apply the
+remaining statements or fully reverse what did land using the block below.
+
+This is a **recovery path**, not a routine step — only run it if you've
+confirmed a partial apply and have decided to back it out rather than
+finish applying it. Every statement uses `if exists`, so it's safe to run
+even against a rows-only-partially-applied state; it only removes what this
+migration itself would have added, and touches no data (no `drop table`,
+no row deletes) beyond the columns/indexes/constraints below:
+
+```sql
+-- children: waitlist + room columns (also drops the room_id FK, since the
+-- FK is defined inline on the column and dropping the column drops it).
+drop index if exists public.children_waitlist_idx;
+drop index if exists public.children_room_id_idx;
+alter table public.children drop column if exists desired_start_date;
+alter table public.children drop column if exists waitlisted_at;
+alter table public.children drop column if exists room_id;
+
+-- rooms: capacity + age band columns and their check constraints (dropping
+-- the column drops constraints defined on it, but they're listed
+-- explicitly here in case a partial apply left a constraint without its
+-- column already gone, or vice versa).
+alter table public.rooms drop constraint if exists rooms_age_band_ordered;
+alter table public.rooms drop constraint if exists rooms_max_age_non_negative;
+alter table public.rooms drop constraint if exists rooms_min_age_non_negative;
+alter table public.rooms drop constraint if exists rooms_capacity_positive;
+alter table public.rooms drop column if exists max_age_months;
+alter table public.rooms drop column if exists min_age_months;
+alter table public.rooms drop column if exists capacity;
+```
+
+After running this, Section 1's queries below should return zero rows for
+all six columns and both index names — confirming a clean reversal before
+you decide whether to re-apply or leave rooms/waitlist off for now.
 
 ## 1. Migration applied cleanly
 
@@ -243,6 +309,17 @@ Expected: their roster comes back (one row per child in their tenant/
 locations, per the billing migrations' view) — proving this migration
 didn't accidentally tighten or loosen that separate boundary either.
 
+Then confirm the same boundary holds in the app, not just in SQL: log in to
+the portal **as a staff user** (not director/platform_admin) and navigate
+to `/waitlist` directly (type the URL or follow a bookmark — there is no
+nav link for staff to click, since Nav only shows Waitlist to
+director/platform_admin). Expected: staff are redirected to `/dashboard` (the page's
+`requireRole(["director", "platform_admin"])` check, `src/lib/auth/dal.ts`,
+calls `redirect("/dashboard")` for any role not in the allowed list) rather
+than shown the waitlist or an error page.
+The SQL check above proves the data boundary; this proves the page-level
+boundary actually gates the route in the running app.
+
 ## 9. Full UI lifecycle as a director
 
 **Before you start:** Settings currently has **no input for room
@@ -280,6 +357,22 @@ Then, in the browser:
    Expected: a charge row exists, prorated from the start date (see
    `docs/BILLING-APPLY-CHECKLIST.md` §1–3 for the underlying proration
    rules this reuses).
+
+   **Warning — the 06:00 cron will not do this for you on a back-dated
+   enrollment.** `generate_recurring_charges_impl` only opens a period when
+   `p_on` IS that period's start day (see
+   `supabase/migrations/20260814120700_attach_pending_credits.sql`). If you
+   enroll a child with a `start_date` in a period whose start day has
+   already passed, the scheduled cron run tomorrow will run for *tomorrow's*
+   date, not for the past period-start day this child needs — it will never
+   retroactively bill that partial period on its own. You must run the
+   manual `generate_recurring_charges(...)` call above yourself, for the
+   period containing the start date, or that child is billed nothing until
+   the *next* period begins. The enroll form's default start date now steers
+   directors toward the next period start specifically to avoid this trap
+   (see the final-review-fixes Important 1 finding), but a director can
+   still type an earlier date by hand, so this manual step remains
+   necessary whenever they do.
 
 ## 10. Soft-deactivated rooms fold into "Unassigned", not disappear
 
