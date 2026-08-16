@@ -1,5 +1,3 @@
-import "server-only";
-
 import { INTENSIVE, eventStartUTC, isInPerson } from "@/lib/intensive/config";
 
 /**
@@ -86,4 +84,46 @@ export function reminderHtml(stage: ReminderStage, firstName: string): string {
       </p>
     </div>
   `;
+}
+
+// ── Confirmation email ───────────────────────────────────────────────────
+// Lives here rather than inline in the webhook so every buyer-facing
+// template has one home, and so a preview renders byte-identical output to
+// what production sends. An inline template can silently drift from
+// whatever you thought you were previewing.
+
+export interface ConfirmationDetails {
+  firstName: string;
+  amountCents: number;
+  currency: string;
+}
+
+export const confirmationSubject = `You're in — ${INTENSIVE.name}, ${INTENSIVE.dateLabel}`;
+
+export function confirmationHtml({ firstName, amountCents, currency }: ConfirmationDetails): string {
+  const whereBlock = isInPerson
+    ? `<p><strong>Where:</strong> ${INTENSIVE.venue.name}<br />${INTENSIVE.venue.address}</p>`
+    : INTENSIVE.zoom.link
+      ? `<p><strong>Zoom:</strong> <a href="${INTENSIVE.zoom.link}">${INTENSIVE.zoom.link}</a></p>`
+      : `<p><strong>Zoom:</strong> your link is on its way — it is issued closer to the date.</p>`;
+
+  return `
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;max-width:560px;color:#0F172A;">
+        <h1 style="font-size:22px;margin:0 0 12px;">${firstName}, you're in.</h1>
+        <p style="line-height:1.6;color:#334155;margin:0 0 16px;">
+          Your seat at <strong>${INTENSIVE.name}</strong> is confirmed.
+        </p>
+        <p><strong>Date:</strong> ${INTENSIVE.dateLabel}</p>
+        <p><strong>Time:</strong> 12:00 PM – 5:00 PM Eastern (${INTENSIVE.timezoneLabel}) · doors open ${INTENSIVE.doorsOpen}</p>
+        ${whereBlock}
+        <p><strong>Paid:</strong> $${(amountCents / 100).toFixed(2)} ${String(currency).toUpperCase()} · one payment</p>
+        <p style="line-height:1.6;color:#334155;">
+          Bring your state, any numbers you already have, and something to write with.
+          Doors open at ${INTENSIVE.doorsOpen} — come early and get settled.
+        </p>
+        <p style="color:#64748B;font-size:13px;line-height:1.6;">
+          Questions? Reply to this email or call ${INTENSIVE.phone}.
+        </p>
+      </div>
+    `;
 }

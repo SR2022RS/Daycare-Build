@@ -2,7 +2,8 @@ import type Stripe from "stripe";
 
 import { getStripe } from "@/lib/stripe/client";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { INTENSIVE, isInPerson } from "@/lib/intensive/config";
+import { INTENSIVE } from "@/lib/intensive/config";
+import { confirmationHtml, confirmationSubject } from "@/lib/intensive/reminders";
 import { sendEmail } from "@/lib/email/resend";
 import type { Database } from "@/types/database.types";
 
@@ -150,37 +151,17 @@ async function recordSession(session: Stripe.Checkout.Session, eventType: string
 }
 
 async function sendConfirmation(row: InsertRow) {
-  const where = isInPerson
-    ? `<p><strong>Where:</strong> ${INTENSIVE.venue.name}<br />${INTENSIVE.venue.address}</p>`
-    : INTENSIVE.zoom.link
-      ? `<p><strong>Zoom:</strong> <a href="${INTENSIVE.zoom.link}">${INTENSIVE.zoom.link}</a></p>`
-      : `<p><strong>Zoom:</strong> your link is on its way — it is issued closer to the date.</p>`;
-
   await sendEmail({
     to: row.email,
     // Sent from the verified funnel domain so it authenticates (SPF/DKIM),
     // but replies go to the inbox a human actually reads.
     from: INTENSIVE.fromEmail,
     replyTo: INTENSIVE.contactEmail,
-    subject: `You're in — ${INTENSIVE.name}, ${INTENSIVE.dateLabel}`,
-    html: `
-      <div style="font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;max-width:560px;color:#0F172A;">
-        <h1 style="font-size:22px;margin:0 0 12px;">${row.first_name}, you're in.</h1>
-        <p style="line-height:1.6;color:#334155;margin:0 0 16px;">
-          Your seat at <strong>${INTENSIVE.name}</strong> is confirmed.
-        </p>
-        <p><strong>Date:</strong> ${INTENSIVE.dateLabel}</p>
-        <p><strong>Time:</strong> 12:00 PM – 5:00 PM Eastern (${INTENSIVE.timezoneLabel}) · room opens ${INTENSIVE.doorsOpen}</p>
-        ${where}
-        <p><strong>Paid:</strong> $${(row.amount_cents / 100).toFixed(2)} ${String(row.currency).toUpperCase()} · one payment</p>
-        <p style="line-height:1.6;color:#334155;">
-          Bring your state, any numbers you already have, and something to write with.
-          Doors open at ${INTENSIVE.doorsOpen} — come early and get settled.
-        </p>
-        <p style="color:#64748B;font-size:13px;line-height:1.6;">
-          Questions? Reply to this email or call ${INTENSIVE.phone}.
-        </p>
-      </div>
-    `,
+    subject: confirmationSubject,
+    html: confirmationHtml({
+      firstName: row.first_name,
+      amountCents: row.amount_cents,
+      currency: row.currency ?? "usd",
+    }),
   });
 }
