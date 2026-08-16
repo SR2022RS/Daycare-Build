@@ -7,6 +7,7 @@ const quiet: AttentionInput = {
   expiring: [],
   aging: [],
   openShifts: [],
+  staleVisits: [],
 };
 
 describe("buildAttentionItems", () => {
@@ -77,12 +78,40 @@ describe("buildAttentionItems", () => {
     expect(items).toEqual([]);
   });
 
+  it("flags a child still checked in from earlier", () => {
+    const [item] = buildAttentionItems({ ...quiet, staleVisits: [{ childId: "c1" }] });
+    expect(item.severity).toBe("warn");
+    expect(item.claim).toBe("A child is still checked in from earlier");
+    expect(item.href).toBe("/attendance/children");
+  });
+
+  it("pluralises stale visits", () => {
+    const [item] = buildAttentionItems({
+      ...quiet,
+      staleVisits: [{ childId: "c1" }, { childId: "c2" }],
+    });
+    expect(item.claim).toBe("2 children are still checked in from earlier");
+    expect(item.value).toBe("2");
+  });
+
+  it("ranks a stale child visit above overdue money", () => {
+    // Both are warnings and only three items survive, so this ordering is
+    // what decides which warning a director actually sees.
+    const items = buildAttentionItems({
+      ...quiet,
+      aging: [{ daysOverdue: 3, amount: 100 }],
+      staleVisits: [{ childId: "c1" }],
+    });
+    expect(items.map((i) => i.id)).toEqual(["staleVisits", "overdue"]);
+  });
+
   it("puts critical items above warnings", () => {
     const items = buildAttentionItems({
       clearance: { total: 29, clearedCount: 2 },
       expiring: [{ daysUntil: 5 }],
       aging: [{ daysOverdue: 3, amount: 100 }],
       openShifts: [],
+      staleVisits: [],
     });
     expect(items.map((i) => i.severity)).toEqual(["critical", "critical", "warn"]);
   });
@@ -93,6 +122,7 @@ describe("buildAttentionItems", () => {
       expiring: [{ daysUntil: 5 }],
       aging: [{ daysOverdue: 3, amount: 100 }],
       openShifts: [{ needsCorrection: true }],
+      staleVisits: [],
     });
     expect(items).toHaveLength(3);
     // The dropped item is a warning, never a critical one.
