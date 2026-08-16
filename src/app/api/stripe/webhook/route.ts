@@ -64,9 +64,17 @@ export async function POST(request: Request) {
     switch (event.type) {
       case "checkout.session.completed":
       case "checkout.session.async_payment_succeeded":
-      case "checkout.session.async_payment_failed":
-        await recordSession(event.data.object, event.type);
+      case "checkout.session.async_payment_failed": {
+        // Re-fetch rather than trusting the delivered payload. Stripe
+        // serializes webhook bodies with the ACCOUNT's default API version,
+        // which here is 2015-01-26 -- old enough that payment_status may be
+        // absent. Missing payment_status would read as "not unpaid" and book
+        // an unpaid seat as confirmed. Retrieving through our own pinned
+        // client guarantees the modern shape no matter how it arrived.
+        const fresh = await stripe.checkout.sessions.retrieve(event.data.object.id);
+        await recordSession(fresh, event.type);
         break;
+      }
       default:
         // Acknowledge anything else so Stripe stops retrying it.
         break;
