@@ -63,14 +63,20 @@ revoke all on function public.admin_set_guardian_pin(uuid, text) from public, an
 grant execute on function public.admin_set_guardian_pin(uuid, text) to authenticated;
 
 -- ── kiosk_identify_guardian_pin: identifies a guardian at a kiosk by PIN
--- alone, same device-scoped lockout as kiosk_identify_pin (a wrong PIN
--- doesn't reveal who it was meant for, so rate-limiting the terminal is
--- the only sane defense). The one structural difference: staff are scoped
--- by staff_locations, but guardians have no location link at all, so the
--- candidate loop scopes by tenant PLUS having at least one active child at
--- the device's location. Without that second clause this function would be
--- a tenant-wide PIN oracle -- any guess would eventually match someone,
--- just not necessarily a family with a child at this building.
+-- alone, device-scoped lockout for the same reason as kiosk_identify_pin
+-- (a wrong PIN doesn't reveal who it was meant for, so rate-limiting the
+-- terminal is the only sane defense). NOTE: as originally written below,
+-- this shared kiosk_devices.failed_attempts/locked_until with staff PIN
+-- entry -- 20260817120300_guardian_lockout.sql replaces this function via
+-- create or replace to use separate guardian_failed_attempts/
+-- guardian_locked_until columns instead, so morning drop-off PIN fumbles
+-- can't lock staff out of clocking in. The structural difference from
+-- kiosk_identify_pin remains: staff are scoped by staff_locations, but
+-- guardians have no location link at all, so the candidate loop scopes by
+-- tenant PLUS having at least one active child at the device's location.
+-- Without that second clause this function would be a tenant-wide PIN
+-- oracle -- any guess would eventually match someone, just not
+-- necessarily a family with a child at this building.
 -- service_role only, called from kiosk server actions with no session. ──
 create function public.kiosk_identify_guardian_pin(p_device_token uuid, p_pin text)
 returns uuid
@@ -156,10 +162,24 @@ grant execute on function public.kiosk_identify_guardian_pin(uuid, text) to serv
 -- ── kiosk_check_child_in: records a visit start. Idempotent by design --
 -- a second tap (double-tap, flaky network retry) hits the partial unique
 -- index on open visits and this function turns it into a no-op instead of
--- an error, returning the existing visit's id unchanged. Exactly one of
--- guardian/staff must vouch for the child, same rule the table's own
--- child_attendance_in_actor constraint enforces -- checked here first so
--- the kiosk gets a readable error instead of a raw constraint violation.
+-- an error, returning the existing visit's id unchanged; the select-then-
+-- insert window is closed by catching unique_violation on the insert
+-- itself and re-reading, so a genuine race between two concurrent taps
+-- still resolves to the same visit id instead of a bare constraint error.
+-- Exactly one of guardian/staff must vouch for the child, same rule the
+-- table's own child_attendance_in_actor constraint enforces -- checked
+-- here first so the kiosk gets a readable error instead of a raw
+-- constraint violation.
+--
+-- p_guardian_id, p_staff_id, and p_room_id are all identity/placement
+-- claims from the caller, not values this function derived itself --
+-- unlike kiosk_identify_pin's candidate loop or admin_set_guardian_pin's
+-- tenant re-check, nothing here would stop a mismatched id from writing
+-- an authoritative-looking custody record. So each is re-verified against
+-- the child before the insert: the guardian must actually be linked to
+-- this child, the staff profile must belong to the child's tenant, and
+-- the room (if supplied) must be at the child's location. service_role
+-- grant only defends the network boundary, not a future caller's bug.
 -- No extensions needed (no crypto in this function), unlike the PIN
 -- functions above. service_role only. ────────────────────────────────────
 create function public.kiosk_check_child_in(p_child_id uuid, p_room_id uuid, p_guardian_id uuid, p_staff_id uuid)
@@ -187,6 +207,27 @@ begin
     raise exception 'child not active';
   end if;
 
+  if p_guardian_id is not null and not exists (
+    select 1 from public.child_guardians cg
+    where cg.child_id = p_child_id and cg.guardian_id = p_guardian_id
+  ) then
+    raise exception 'guardian_not_linked';
+  end if;
+
+  if p_staff_id is not null and not exists (
+    select 1 from public.profiles pr
+    where pr.id = p_staff_id and pr.tenant_id = v_child.tenant_id
+  ) then
+    raise exception 'staff_not_in_tenant';
+  end if;
+
+  if p_room_id is not null and not exists (
+    select 1 from public.rooms r
+    where r.id = p_room_id and r.location_id = v_child.location_id
+  ) then
+    raise exception 'room_not_at_location';
+  end if;
+
   v_room_id := coalesce(p_room_id, v_child.room_id);
 
   select id into v_existing_id
@@ -205,6 +246,11 @@ begin
   returning id into v_new_id;
 
   return v_new_id;
+exception when unique_violation then
+  select id into v_new_id
+  from public.child_attendance
+  where child_id = p_child_id and checked_out_at is null;
+  return v_new_id;
 end;
 $$;
 
@@ -218,7 +264,13 @@ grant execute on function public.kiosk_check_child_in(uuid, uuid, uuid, uuid) to
 -- reasoning as the `for update` on kiosk_devices above. Raises a
 -- distinguishable no_open_visit exception (rather than silently no-op'ing)
 -- because, unlike check-in, a phantom checkout is a parent-facing error
--- worth surfacing, not a retry to swallow. service_role only. ───────────
+-- worth surfacing, not a retry to swallow.
+--
+-- Same identity re-verification as kiosk_check_child_in and for the same
+-- reason: p_guardian_id/p_staff_id are unverified claims from the caller,
+-- and a mismatch here does not fail loudly -- it writes a custody record
+-- (Guardian X collected Child Y) that looks authoritative to every staff
+-- member, director, and eventual licensing audit. service_role only. ───
 create function public.kiosk_check_child_out(p_child_id uuid, p_guardian_id uuid, p_staff_id uuid, p_override_reason text)
 returns uuid
 language plpgsql
@@ -227,18 +279,33 @@ set search_path = public
 as $$
 declare
   v_visit_id uuid;
+  v_visit_tenant_id uuid;
 begin
   if num_nonnulls(p_guardian_id, p_staff_id) <> 1 then
     raise exception 'exactly one of guardian or staff must check the child out';
   end if;
 
-  select id into v_visit_id
+  select id, tenant_id into v_visit_id, v_visit_tenant_id
   from public.child_attendance
   where child_id = p_child_id and checked_out_at is null
   for update;
 
   if v_visit_id is null then
     raise exception 'no_open_visit';
+  end if;
+
+  if p_guardian_id is not null and not exists (
+    select 1 from public.child_guardians cg
+    where cg.child_id = p_child_id and cg.guardian_id = p_guardian_id
+  ) then
+    raise exception 'guardian_not_linked';
+  end if;
+
+  if p_staff_id is not null and not exists (
+    select 1 from public.profiles pr
+    where pr.id = p_staff_id and pr.tenant_id = v_visit_tenant_id
+  ) then
+    raise exception 'staff_not_in_tenant';
   end if;
 
   update public.child_attendance

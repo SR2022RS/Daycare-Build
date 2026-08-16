@@ -11,6 +11,9 @@ create table public.guardian_pins (
   guardian_id uuid primary key references public.guardians (id) on delete cascade,
   tenant_id uuid not null references public.tenants (id) on delete cascade,
   pin_hash text not null,
+  -- Written by admin_set_guardian_pin's upsert but never read: lockout is
+  -- device-scoped (kiosk_devices.guardian_failed_attempts / guardian_locked_until),
+  -- same as profile_pins post-kiosk. Do not wire these up.
   failed_attempts int not null default 0,
   locked_until timestamptz,
   updated_at timestamptz not null default now()
