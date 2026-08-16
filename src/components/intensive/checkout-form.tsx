@@ -154,12 +154,12 @@ export function CheckoutForm({ cancelled }: { cancelled: boolean }) {
                 </p>
                 <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[13.5px]">
                   <a
-                    href={`mailto:${INTENSIVE.senderEmail}?subject=${encodeURIComponent(
+                    href={`mailto:${INTENSIVE.contactEmail}?subject=${encodeURIComponent(
                       `Seat for ${INTENSIVE.name}`,
                     )}`}
                     className="font-medium text-[#FF4FA3] underline underline-offset-4 hover:text-[#3CC0D8]"
                   >
-                    {INTENSIVE.senderEmail}
+                    {INTENSIVE.contactEmail}
                   </a>
                   <a
                     href={`tel:${INTENSIVE.phone.replace(/[^0-9+]/g, "")}`}

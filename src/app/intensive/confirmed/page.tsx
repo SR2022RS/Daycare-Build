@@ -45,7 +45,7 @@ export default async function IntensiveConfirmedPage({
           <p className="mt-4 text-[15px] leading-[1.7] text-[#8C857C]">
             {registration
               ? "Your payment is going through. This page updates once the confirmation lands — refresh in a minute, and check your email either way."
-              : `If you just paid, the confirmation can take a moment to reach us — refresh this page. If you have not registered yet, start from the details page. Anything else, email ${INTENSIVE.senderEmail}.`}
+              : `If you just paid, the confirmation can take a moment to reach us — refresh this page. If you have not registered yet, start from the details page. Anything else, email ${INTENSIVE.contactEmail}.`}
           </p>
           <div className="mt-7 flex flex-wrap justify-center gap-x-4 gap-y-2 text-sm">
             <Link
@@ -55,10 +55,10 @@ export default async function IntensiveConfirmedPage({
               Back to the details
             </Link>
             <a
-              href={`mailto:${INTENSIVE.senderEmail}`}
+              href={`mailto:${INTENSIVE.contactEmail}`}
               className="font-medium text-[#FF4FA3] underline underline-offset-4 hover:text-[#3CC0D8]"
             >
-              {INTENSIVE.senderEmail}
+              {INTENSIVE.contactEmail}
             </a>
           </div>
         </div>
@@ -164,8 +164,10 @@ export default async function IntensiveConfirmedPage({
         </div>
 
         <p className="mt-6 rounded-[10px] border border-[#E6E9EE] bg-[#F6F7F9] px-[17px] py-[15px] text-[13.5px] leading-[1.65] text-[#475569]">
+          {/* fromAddress, not contactEmail: this is the address the mail
+              actually arrives from, so it is the one worth whitelisting. */}
           Check your spam folder if nothing arrives within 15 minutes — the confirmation comes from{" "}
-          <span className="font-medium text-[#0F172A]">{INTENSIVE.senderEmail}</span>. Add it to your
+          <span className="font-medium text-[#0F172A]">{INTENSIVE.fromAddress}</span>. Add it to your
           contacts so the materials and replay link reach you.
         </p>
       </div>

@@ -76,7 +76,19 @@ export const INTENSIVE = {
   refundPolicy:
     "All sales are final. Your seat is reserved the moment you pay, so there are no refunds and no transfers. If you cannot make it on the day, you still keep the materials packet and the replay.",
 
-  senderEmail: "amazinkidsparadiseacademy@yahoo.com",
+  /**
+   * Where automated mail is sent FROM. Must be on a domain verified in
+   * Resend (akpadaycareblueprint.com), or delivery silently fails.
+   * Distinct from contactEmail on purpose: this is the address that shows in
+   * the inbox, so it is the one the "check your spam folder" note has to
+   * name -- telling people to whitelist an address mail never comes from is
+   * worse than saying nothing.
+   */
+  fromEmail: "Shikara Smith <shikara@akpadaycareblueprint.com>",
+  fromAddress: "shikara@akpadaycareblueprint.com",
+
+  /** Where a human reads replies. Shown as the contact link on the page. */
+  contactEmail: "amazinkidsparadiseacademy@yahoo.com",
   phone: "973-523-5318",
 
   /** null = no seat cap, no scarcity counter. */
@@ -298,7 +310,7 @@ export function buildIcs(): string {
     `DTEND:${stamp(endHour)}`,
     `SUMMARY:${INTENSIVE.name}`,
     `LOCATION:${location}`,
-    `DESCRIPTION:${INTENSIVE.tagline} Room opens ${INTENSIVE.doorsOpen} ${INTENSIVE.timezoneLabel}. Questions: ${INTENSIVE.senderEmail}`,
+    `DESCRIPTION:${INTENSIVE.tagline} Room opens ${INTENSIVE.doorsOpen} ${INTENSIVE.timezoneLabel}. Questions: ${INTENSIVE.contactEmail}`,
     "END:VEVENT",
     "END:VCALENDAR",
   ].join("\r\n");

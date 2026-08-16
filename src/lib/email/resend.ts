@@ -13,7 +13,15 @@ export interface SendEmailResult {
   error?: string;
 }
 
-export async function sendEmail(params: { to: string; subject: string; html: string }): Promise<SendEmailResult> {
+export async function sendEmail(params: {
+  to: string;
+  subject: string;
+  html: string;
+  /** Overrides EMAIL_FROM. Must be on a domain verified in Resend. */
+  from?: string;
+  /** Where replies land, when that differs from the sending domain. */
+  replyTo?: string;
+}): Promise<SendEmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     return { ok: false, error: "RESEND_API_KEY not configured" };
@@ -26,8 +34,9 @@ export async function sendEmail(params: { to: string; subject: string; html: str
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: process.env.EMAIL_FROM || DEFAULT_FROM,
+      from: params.from || process.env.EMAIL_FROM || DEFAULT_FROM,
       to: [params.to],
+      ...(params.replyTo ? { reply_to: params.replyTo } : {}),
       subject: params.subject,
       html: params.html,
     }),

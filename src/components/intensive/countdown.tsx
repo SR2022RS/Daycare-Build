@@ -149,12 +149,12 @@ export function HeroCountdown() {
         </p>
         <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-sm">
           <a
-            href={`mailto:${INTENSIVE.senderEmail}?subject=${encodeURIComponent(
+            href={`mailto:${INTENSIVE.contactEmail}?subject=${encodeURIComponent(
               "Next Daycare Owner Intensive date",
             )}`}
             className="font-medium text-[#FF4FA3] underline underline-offset-4 hover:text-[#3CC0D8]"
           >
-            {INTENSIVE.senderEmail}
+            {INTENSIVE.contactEmail}
           </a>
           <a
             href={`tel:${INTENSIVE.phone.replace(/[^0-9+]/g, "")}`}

@@ -158,6 +158,10 @@ async function sendConfirmation(row: InsertRow) {
 
   await sendEmail({
     to: row.email,
+    // Sent from the verified funnel domain so it authenticates (SPF/DKIM),
+    // but replies go to the inbox a human actually reads.
+    from: INTENSIVE.fromEmail,
+    replyTo: INTENSIVE.contactEmail,
     subject: `You're in — ${INTENSIVE.name}, ${INTENSIVE.dateLabel}`,
     html: `
       <div style="font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;max-width:560px;color:#0F172A;">

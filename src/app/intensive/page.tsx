@@ -342,8 +342,8 @@ export default function IntensiveLandingPage() {
             <CtaButton>Reserve My Seat — ${INTENSIVE.price}</CtaButton>
           </div>
           <p className="mt-[22px] text-[12.5px] leading-[1.8] text-[#8C857C]">
-            <a href={`mailto:${INTENSIVE.senderEmail}`} className="hover:text-[#3CC0D8]">
-              {INTENSIVE.senderEmail}
+            <a href={`mailto:${INTENSIVE.contactEmail}`} className="hover:text-[#3CC0D8]">
+              {INTENSIVE.contactEmail}
             </a>{" "}
             ·{" "}
             <a
