@@ -9,6 +9,11 @@ const nextConfig: NextConfig = {
         source: "/forms/fill/:token*",
         headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
       },
+      {
+        // Kiosk device links -- same reasoning as forms/fill.
+        source: "/kiosk/:deviceToken*",
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      },
     ];
   },
 };

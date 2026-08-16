@@ -5,6 +5,7 @@ import { ShieldAlert, ShieldCheck } from "lucide-react";
 import { requireRole } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
 import { createWriteUp, setSiteLead, upsertCredential } from "@/lib/staff/actions";
+import { ResetPinForm } from "@/components/staff/reset-pin-form";
 import {
   ALL_CREDENTIAL_TYPES,
   CREDENTIAL_LABELS,
@@ -356,6 +357,15 @@ export default async function StaffDetailPage({
               Classroom and ratio assignment are deferred to the children &amp; classroom module &mdash; not
               in this schema.
             </p>
+          </section>
+
+          <section className="rounded-xl border border-gray-200 bg-white p-4.5">
+            <h2 className="mb-1 font-serif text-[14.5px] font-semibold text-gray-900">Kiosk PIN</h2>
+            <p className="mb-3 text-[11.5px] leading-relaxed text-gray-400">
+              Clocks in/out at a registered kiosk device only &mdash; never opens the full portal. Assigned and
+              reset by directors; staff can&apos;t set their own.
+            </p>
+            <ResetPinForm staffId={staffId} />
           </section>
 
           {staffMember.role === "staff" && (
