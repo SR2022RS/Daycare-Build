@@ -6,6 +6,7 @@ import { verifySession } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
 import { addGuardian, removeGuardian, setGuardianPayer, updateChild } from "@/lib/children/actions";
 import { CADENCE_LABELS, FUNDING_TYPE_LABELS, SCHEDULE_LABELS } from "@/lib/children/labels";
+import { ResetGuardianPinForm } from "@/components/children/reset-guardian-pin-form";
 import { createFormSend } from "@/lib/forms/actions";
 import { FORM_LIBRARY, formTitle } from "@/lib/forms/definitions";
 import { getSiteUrl } from "@/lib/site-url";
@@ -316,6 +317,7 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
                     View billing &rarr;
                   </Link>
                 )}
+                <ResetGuardianPinForm guardianId={g.id} guardianName={g.fullName} />
                 <form action={removeGuardian} className="mt-1.5">
                   <input type="hidden" name="childId" value={child.id} />
                   <input type="hidden" name="guardianId" value={g.id} />

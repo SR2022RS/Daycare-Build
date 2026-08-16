@@ -175,3 +175,50 @@ export async function removeGuardian(formData: FormData) {
 
   revalidatePath(`/children/${childId}`);
 }
+
+/**
+ * Issue or reset a guardian's kiosk PIN.
+ *
+ * Deliberately mirrors `resetStaffPin` in `src/lib/kiosk/actions.ts`,
+ * including the `useActionState` signature: the plaintext PIN exists only
+ * inside this function and the one render that displays it, so it has to
+ * come back through the action's return value rather than being stored.
+ * `admin_set_guardian_pin` only ever receives it to hash.
+ *
+ * The retry loop exists because the RPC enforces tenant-wide PIN uniqueness
+ * (the kiosk identifies a guardian by PIN alone, with no username), so a
+ * randomly generated candidate can legitimately collide. Five attempts
+ * against a 9000-value space makes an exhausted loop a real signal that the
+ * tenant is running out of PINs, not a transient failure.
+ *
+ * A guardian PIN is kiosk-only and never grants portal access, exactly as
+ * the staff PIN is.
+ */
+export async function resetGuardianPin(
+  _state: { message?: string; pin?: string } | undefined,
+  formData: FormData,
+): Promise<{ message?: string; pin?: string }> {
+  await requireRole(["director", "platform_admin"]);
+  const guardianId = str(formData, "guardianId");
+  if (!guardianId) {
+    return { message: "Missing guardian." };
+  }
+
+  const supabase = await createClient();
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const candidate = String(Math.floor(1000 + Math.random() * 9000));
+    const { error } = await supabase.rpc("admin_set_guardian_pin", {
+      p_guardian_id: guardianId,
+      p_pin: candidate,
+    });
+    if (!error) {
+      return { pin: candidate };
+    }
+    if (!error.message.includes("pin_taken")) {
+      return { message: "Couldn't set a PIN. Try again." };
+    }
+  }
+
+  return { message: "Couldn't find a free PIN. Try again." };
+}
