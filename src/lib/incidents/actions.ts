@@ -38,11 +38,22 @@ export async function fileIncident(formData: FormData) {
   revalidatePath("/incidents");
 }
 
+export type IncidentActionState = { message?: string } | undefined;
+
+const CANT_SELF_UPDATE_MESSAGE = "You filed this report, so you can't update it yourself — ask another director or site lead.";
+
 // No app-layer role gate -- site lead is a flag, not a role, so eligibility
 // (director/platform_admin, or site lead at the report's own location) is
-// enforced entirely by incident_reports_update RLS. An unauthorized caller's
-// update just matches zero rows.
-export async function signIncident(formData: FormData) {
+// enforced entirely by incident_reports_update RLS -- which also excludes
+// the report's own filer (no self-certification). An update blocked by RLS
+// isn't an error, just zero matched rows, so `.select().maybeSingle()`
+// after the update is how we tell "blocked" apart from "succeeded" and
+// surface that as a real message instead of the button silently doing
+// nothing.
+export async function signIncident(
+  _state: IncidentActionState,
+  formData: FormData,
+): Promise<IncidentActionState> {
   const session = await verifySession();
   const incidentId = formData.get("incidentId");
 
@@ -51,15 +62,27 @@ export async function signIncident(formData: FormData) {
   }
 
   const supabase = await createClient();
-  await supabase
+  const { data, error } = await supabase
     .from("incident_reports")
     .update({ status: "signed", signed_by: session.profile.id, signed_at: new Date().toISOString() })
-    .eq("id", incidentId);
+    .eq("id", incidentId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return { message: "Couldn't sign this report. Try again." };
+  }
+  if (!data) {
+    return { message: CANT_SELF_UPDATE_MESSAGE };
+  }
 
   revalidatePath("/incidents");
 }
 
-export async function markParentNotified(formData: FormData) {
+export async function markParentNotified(
+  _state: IncidentActionState,
+  formData: FormData,
+): Promise<IncidentActionState> {
   await verifySession();
   const incidentId = formData.get("incidentId");
 
@@ -68,10 +91,19 @@ export async function markParentNotified(formData: FormData) {
   }
 
   const supabase = await createClient();
-  await supabase
+  const { data, error } = await supabase
     .from("incident_reports")
     .update({ status: "parent_notified", parent_notified_at: new Date().toISOString() })
-    .eq("id", incidentId);
+    .eq("id", incidentId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return { message: "Couldn't update this report. Try again." };
+  }
+  if (!data) {
+    return { message: CANT_SELF_UPDATE_MESSAGE };
+  }
 
   revalidatePath("/incidents");
 }

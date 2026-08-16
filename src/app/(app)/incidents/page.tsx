@@ -2,7 +2,8 @@ import { ShieldAlert } from "lucide-react";
 
 import { verifySession } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
-import { fileIncident, markParentNotified, signIncident } from "@/lib/incidents/actions";
+import { fileIncident } from "@/lib/incidents/actions";
+import { MarkParentNotifiedForm, SignForm } from "@/components/incidents/incident-action-forms";
 import type { IncidentStatus } from "@/types/database.types";
 
 const STATUS_LABELS: Record<IncidentStatus, string> = {
@@ -92,28 +93,8 @@ export default async function IncidentsPage() {
                   <span className="font-medium text-gray-700">Action taken:</span> {r.action_taken}
                 </p>
                 <div className="mt-2 flex gap-2">
-                  {r.status === "filed" && (
-                    <form action={signIncident}>
-                      <input type="hidden" name="incidentId" value={r.id} />
-                      <button
-                        type="submit"
-                        className="rounded-md bg-[var(--brand-accent)] px-3 py-1.5 text-xs font-semibold text-[#06323A] hover:opacity-90"
-                      >
-                        Sign
-                      </button>
-                    </form>
-                  )}
-                  {r.status === "signed" && (
-                    <form action={markParentNotified}>
-                      <input type="hidden" name="incidentId" value={r.id} />
-                      <button
-                        type="submit"
-                        className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                      >
-                        Mark parent notified
-                      </button>
-                    </form>
-                  )}
+                  {r.status === "filed" && <SignForm incidentId={r.id} />}
+                  {r.status === "signed" && <MarkParentNotifiedForm incidentId={r.id} />}
                 </div>
               </li>
             ))}
