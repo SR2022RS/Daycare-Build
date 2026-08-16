@@ -1,6 +1,7 @@
 import {
   BookOpen,
   Calendar,
+  DoorOpen,
   LayoutDashboard,
   Settings,
   Users,
@@ -32,6 +33,7 @@ export function getNavSections(role: AppRole): NavSection[] {
         label: "Children",
         items: [
           { title: "Children & guardians", href: "/children", icon: Baby },
+          { title: "Who's here", href: "/attendance/children", icon: DoorOpen },
           { title: "Waitlist", href: "/waitlist", icon: ClipboardList },
         ],
       },
@@ -74,6 +76,9 @@ export function getNavSections(role: AppRole): NavSection[] {
         { title: "Time clock", href: "/attendance", icon: Calendar },
         { title: "Incident reports", href: "/incidents", icon: ShieldAlert },
         { title: "Children", href: "/children", icon: Baby },
+        // Staff running a room genuinely need this one -- it is the only
+        // surface that answers "who is in my room right now".
+        { title: "Who's here", href: "/attendance/children", icon: DoorOpen },
       ],
     },
     {
