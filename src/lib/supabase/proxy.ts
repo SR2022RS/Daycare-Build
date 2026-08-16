@@ -36,6 +36,10 @@ const PUBLIC_PATHS = [
   // never be recorded. Authorized by webhook signature, not by session --
   // see app/api/stripe/webhook/route.ts.
   "/api/stripe/webhook",
+  // Vercel's cron runner calls this server-to-server with no cookie, so the
+  // proxy must not bounce it to /login. Authorized by the CRON_SECRET bearer
+  // token it checks itself -- see app/api/cron/intensive-reminders/route.ts.
+  "/api/cron/",
 ];
 
 // Carved back out of the public tree: /intensive/registrations is the

@@ -1240,6 +1240,30 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["intensive_registrations"]["Insert"]>;
         Relationships: [];
       };
+      intensive_reminder_sends: {
+        Row: {
+          id: string;
+          registration_id: string;
+          stage: string;
+          sent_at: string;
+        };
+        Insert: {
+          id?: string;
+          registration_id: string;
+          stage: string;
+          sent_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["intensive_reminder_sends"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "intensive_reminder_sends_registration_id_fkey";
+            columns: ["registration_id"];
+            isOneToOne: false;
+            referencedRelation: "intensive_registrations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       support_tickets: {
         Row: {
           id: string;
