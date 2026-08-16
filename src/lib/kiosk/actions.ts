@@ -110,8 +110,12 @@ async function resolveSession(sessionToken: string) {
     .eq("id", sessionToken)
     .maybeSingle();
 
-  if (!data || new Date(data.expires_at) < new Date()) return null;
-  return data;
+  // kiosk_sessions.profile_id is nullable now that guardian sessions share
+  // the table (see kiosk_sessions_actor). Every action below is staff-only
+  // (clock in/out, breaks, room transfers, incident filing), so a guardian
+  // session -- profile_id null -- is not a valid session here.
+  if (!data || new Date(data.expires_at) < new Date() || !data.profile_id) return null;
+  return { ...data, profile_id: data.profile_id };
 }
 
 export async function kioskClockIn(sessionToken: string): Promise<KioskActionResult> {
