@@ -54,7 +54,7 @@ export const INTENSIVE = {
   endHour: 17,
   doorsOpen: "11:30 AM",
 
-  /** Eastern Daylight Time on Sept 13 2026. */
+  /** Eastern Daylight Time on Sept 12 2026. */
   timezoneLabel: "ET",
   timezoneOffsetUTC: -4,
 
@@ -295,8 +295,27 @@ export function buildIcs(): string {
     ? `${INTENSIVE.venue.name}, ${INTENSIVE.venue.address}`
     : INTENSIVE.zoom.link || "Live on Zoom";
 
-  // Long lines must be folded at 75 octets per the spec; these all sit well
-  // under that, so a plain join is safe here.
+  /**
+   * RFC 5545 TEXT escaping. The venue address contains commas, and an
+   * unescaped comma is a value separator in iCalendar -- strict parsers
+   * read "87 S Washington Ave, Bergenfield" as two locations.
+   */
+  const esc = (v: string) =>
+    v.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+
+  /**
+   * Content lines are limited to 75 octets; continuations start with a
+   * space, which the reader strips when unfolding. Splitting on characters
+   * would undercount multi-byte ones, so every string fed to fold() is kept
+   * ASCII (no em dashes or smart quotes) and the two counts stay identical.
+   */
+  const fold = (line: string) =>
+    line.length <= 75 ? line : (line.match(/.{1,73}/g) ?? [line]).join("\r\n ");
+
+  const description =
+    `${INTENSIVE.tagline} Doors open ${INTENSIVE.doorsOpen} ${INTENSIVE.timezoneLabel}. ` +
+    `Questions: ${INTENSIVE.contactEmail} or ${INTENSIVE.phone}`;
+
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -308,9 +327,25 @@ export function buildIcs(): string {
     `DTSTAMP:${stamp(startHour)}`,
     `DTSTART:${stamp(startHour)}`,
     `DTEND:${stamp(endHour)}`,
-    `SUMMARY:${INTENSIVE.name}`,
-    `LOCATION:${location}`,
-    `DESCRIPTION:${INTENSIVE.tagline} Room opens ${INTENSIVE.doorsOpen} ${INTENSIVE.timezoneLabel}. Questions: ${INTENSIVE.contactEmail}`,
+    fold(`SUMMARY:${esc(INTENSIVE.name)}`),
+    fold(`LOCATION:${esc(location)}`),
+    fold(`DESCRIPTION:${esc(description)}`),
+    "URL:https://akpadaycareblueprint.com",
+    "STATUS:CONFIRMED",
+    // Without alarms the invite imports with "Alert: None" -- the calendar
+    // holds the date but never speaks up. For a paid, in-person session
+    // someone booked a month out, the day-before nudge is the one that
+    // actually gets them there.
+    "BEGIN:VALARM",
+    "TRIGGER:-P1D",
+    "ACTION:DISPLAY",
+    fold(`DESCRIPTION:${esc(`${INTENSIVE.name} is tomorrow`)}`),
+    "END:VALARM",
+    "BEGIN:VALARM",
+    "TRIGGER:-PT2H",
+    "ACTION:DISPLAY",
+    fold(`DESCRIPTION:${esc(`${INTENSIVE.name} starts at noon. Doors open ${INTENSIVE.doorsOpen}`)}`),
+    "END:VALARM",
     "END:VEVENT",
     "END:VCALENDAR",
   ].join("\r\n");
