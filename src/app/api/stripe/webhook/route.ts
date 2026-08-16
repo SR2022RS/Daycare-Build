@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { INTENSIVE, buildIcs } from "@/lib/intensive/config";
 import { confirmationHtml, confirmationSubject } from "@/lib/intensive/reminders";
 import { sendEmail } from "@/lib/email/resend";
+import { isGhlConfigured, upsertIntensiveContact } from "@/lib/ghl/client";
 import { isIntensiveSession } from "@/lib/stripe/routing";
 import type { Database } from "@/types/database.types";
 
@@ -172,11 +173,26 @@ async function recordSession(session: Stripe.Checkout.Session, eventType: string
   // Only a genuinely paid seat gets a confirmation email, and only on the
   // transition into paid -- a redelivered event must not re-send it.
   if (status === "paid" && data) {
+    // Both side effects are deliberately fire-and-forget relative to the
+    // webhook's own success. The seat is already paid and recorded; neither
+    // an email outage nor a CRM outage should make Stripe retry, because a
+    // retry would not fix either and the row is already correct.
     await sendConfirmation(row).catch((error) => {
-      // A failed email must not fail the webhook: the seat is already paid
-      // and recorded, and Stripe retrying would not fix an email outage.
       console.error(`[stripe-webhook] confirmation email failed for ${session.id}`, error);
     });
+
+    if (isGhlConfigured()) {
+      const crm = await upsertIntensiveContact({
+        firstName: row.first_name,
+        lastName: row.last_name,
+        email: row.email,
+      });
+      if (crm.ok) {
+        console.log(`[stripe-webhook] GHL contact upserted ${crm.contactId} for ${session.id}`);
+      } else {
+        console.error(`[stripe-webhook] GHL upsert failed for ${session.id}: ${crm.error}`);
+      }
+    }
   }
 }
 
