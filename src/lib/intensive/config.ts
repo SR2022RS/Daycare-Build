@@ -46,10 +46,10 @@ export const INTENSIVE = {
   // A test price id shipped in a live deploy fails at checkout, which is
   // exactly the mistake a hardcoded value invites.
 
-  /** Sept 13 2026, month is 0-indexed to match Date.UTC. */
-  date: { year: 2026, month: 8, day: 13 },
-  dateLabel: "Sunday, September 13, 2026",
-  shortDate: "Sun, Sep 13 · 12:00–5:00 PM ET",
+  /** Sat Sept 12 2026, month is 0-indexed to match Date.UTC. */
+  date: { year: 2026, month: 8, day: 12 },
+  dateLabel: "Saturday, September 12, 2026",
+  shortDate: "Sat, Sep 12 · 12:00–5:00 PM ET",
   startHour: 12,
   endHour: 17,
   doorsOpen: "11:30 AM",
