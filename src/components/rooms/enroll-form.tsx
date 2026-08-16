@@ -45,7 +45,9 @@ export function EnrollForm({
         </p>
       )}
       <p className="w-full text-[11px] text-gray-400">
-        Enrolling starts billing from the start date.
+        Billing begins on the next generation run for the period containing the start date. A
+        back-dated start date needs a manual &quot;Generate now&quot; on /billing to bill the
+        partial period.
       </p>
     </form>
   );

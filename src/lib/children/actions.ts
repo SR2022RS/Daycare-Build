@@ -59,6 +59,25 @@ export async function updateChild(formData: FormData) {
   }
 
   const supabase = await createClient();
+
+  const roomId = str(formData, "roomId");
+  if (roomId) {
+    // roomId arrives from a hidden/select form field, so it must be
+    // verified to belong to this director's own tenant before writing it
+    // onto the child -- the room_id FK has no tenancy check of its own, so
+    // a crafted POST could otherwise point a child at another tenant's
+    // room. Mirrors the invoiceId ownership check in recordPayment
+    // (src/lib/billing/actions.ts).
+    const { data: room } = await supabase
+      .from("rooms")
+      .select("id")
+      .eq("id", roomId)
+      .eq("tenant_id", session.profile.tenantId)
+      .maybeSingle();
+
+    if (!room) return;
+  }
+
   await supabase
     .from("children")
     .update({
@@ -74,7 +93,7 @@ export async function updateChild(formData: FormData) {
       rate_note: str(formData, "rateNote"),
       cadence: (str(formData, "cadence") ?? "weekly") as BillingCadence,
       start_date: str(formData, "startDate"),
-      room_id: str(formData, "roomId"),
+      room_id: roomId,
       waitlisted_at: str(formData, "waitlistedAt"),
       desired_start_date: str(formData, "desiredStartDate"),
       updated_at: new Date().toISOString(),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { firstMondayOf, periodFor, prorationFraction, thirdMondayOf } from "./periods";
+import { firstMondayOf, nextPeriodStart, periodFor, prorationFraction, thirdMondayOf } from "./periods";
 
 // 2026-08-03 is the 1st Monday of Aug 2026; 2026-08-17 is the 3rd Monday.
 describe("firstMondayOf / thirdMondayOf", () => {
@@ -59,6 +59,36 @@ describe("periodFor biweekly", () => {
 
   it("returns null on a Monday that is neither the 1st nor 3rd", () => {
     expect(periodFor("biweekly", new Date("2026-08-24T00:00:00Z"))).toBeNull();
+  });
+});
+
+describe("nextPeriodStart", () => {
+  it("weekly: scans forward from mid-week to the next Monday", () => {
+    expect(nextPeriodStart("weekly", new Date("2026-08-19T00:00:00Z"))).toBe("2026-08-24");
+  });
+
+  it("weekly: returns the same day when it's already a Monday", () => {
+    expect(nextPeriodStart("weekly", new Date("2026-08-17T00:00:00Z"))).toBe("2026-08-17");
+  });
+
+  it("monthly: scans forward from mid-month to the 1st of next month", () => {
+    expect(nextPeriodStart("monthly", new Date("2026-08-15T00:00:00Z"))).toBe("2026-09-01");
+  });
+
+  it("monthly: returns the same day when it's already the 1st", () => {
+    expect(nextPeriodStart("monthly", new Date("2026-08-01T00:00:00Z"))).toBe("2026-08-01");
+  });
+
+  it("monthly: rolls over into the next calendar year", () => {
+    expect(nextPeriodStart("monthly", new Date("2026-12-15T00:00:00Z"))).toBe("2027-01-01");
+  });
+
+  it("biweekly: from the 2nd Monday (not a period start) lands on the 3rd Monday", () => {
+    expect(nextPeriodStart("biweekly", new Date("2026-08-10T00:00:00Z"))).toBe("2026-08-17");
+  });
+
+  it("biweekly: from just after the 3rd Monday lands on next month's 1st Monday", () => {
+    expect(nextPeriodStart("biweekly", new Date("2026-08-20T00:00:00Z"))).toBe("2026-09-07");
   });
 });
 

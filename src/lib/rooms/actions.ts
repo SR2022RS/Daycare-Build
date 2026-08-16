@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 
 import { requireRole } from "@/lib/auth/dal";
-import { todayISO } from "@/lib/billing/dates";
 import { createClient } from "@/lib/supabase/server";
 
 export type WaitlistActionState = { message?: string } | undefined;
@@ -49,7 +48,24 @@ export async function enrollFromWaitlist(
   };
   // Only overwrite the room when one was chosen; never clear an existing
   // assignment by enrolling without picking a room.
-  if (roomId) update.room_id = roomId;
+  if (roomId) {
+    // roomId arrives from a hidden form field, so it must be verified to
+    // belong to this director's own tenant before writing it onto the
+    // child -- the room_id FK has no tenancy check of its own, so a
+    // crafted POST could otherwise point a child at another tenant's room.
+    // Mirrors the invoiceId ownership check in recordPayment
+    // (src/lib/billing/actions.ts).
+    const { data: room } = await supabase
+      .from("rooms")
+      .select("id")
+      .eq("id", roomId)
+      .eq("tenant_id", session.profile.tenantId)
+      .maybeSingle();
+
+    if (!room) return { message: "That room isn't available." };
+
+    update.room_id = roomId;
+  }
 
   // RLS blocks rather than errors, so a blocked update returns zero rows.
   const { data, error } = await supabase
@@ -68,35 +84,4 @@ export async function enrollFromWaitlist(
   revalidatePath("/children");
   revalidatePath(`/children/${childId}`);
   revalidatePath("/dashboard");
-}
-
-/** Puts a child on the waitlist, stamping today in the center's timezone. */
-export async function addToWaitlist(formData: FormData) {
-  const session = await requireRole(["director", "platform_admin"]);
-
-  const childId = formData.get("childId");
-  if (typeof childId !== "string" || !childId) return;
-
-  const supabase = await createClient();
-
-  // RLS blocks rather than errors, so a blocked update returns zero rows --
-  // same reasoning as enrollFromWaitlist above and voidCharge in
-  // billing/actions.ts. This action has no useActionState return channel
-  // today (it's wired as a plain <form action={...}>), so a blocked write
-  // (stale childId, cross-tenant, deleted child) has nothing to surface a
-  // message through; the fix here is only to stop revalidating paths for a
-  // write that never landed, not to invent a new signature.
-  const { data, error } = await supabase
-    .from("children")
-    .update({ status: "waitlisted", waitlisted_at: todayISO() })
-    .eq("id", childId)
-    .eq("tenant_id", session.profile.tenantId)
-    .select("id")
-    .maybeSingle();
-
-  if (error || !data) return;
-
-  revalidatePath("/waitlist");
-  revalidatePath("/children");
-  revalidatePath(`/children/${childId}`);
 }

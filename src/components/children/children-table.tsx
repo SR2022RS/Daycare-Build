@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 
-import { CHILD_STATUS_LABELS, FUNDING_TYPE_LABELS } from "@/lib/children/labels";
+import { age, CHILD_STATUS_LABELS, FUNDING_TYPE_LABELS } from "@/lib/children/labels";
 import type { ChildStatus, FundingType } from "@/types/database.types";
 
 export interface ChildRow {
@@ -15,12 +15,6 @@ export interface ChildRow {
   fundingType: FundingType;
   weeklyRate: number | null;
   guardianCount: number;
-}
-
-function age(dob: string) {
-  const diff = Date.now() - new Date(dob).getTime();
-  const years = diff / (365.25 * 24 * 3600 * 1000);
-  return years < 2 ? `${Math.round(years * 12)}mo` : `${Math.floor(years)}y`;
 }
 
 export function ChildrenTable({ rows, locations }: { rows: ChildRow[]; locations: string[] }) {

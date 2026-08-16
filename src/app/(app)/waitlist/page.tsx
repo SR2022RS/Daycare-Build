@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { requireRole } from "@/lib/auth/dal";
-import { todayISO } from "@/lib/billing/dates";
+import { age } from "@/lib/children/labels";
 import { getWaitlist } from "@/lib/rooms/queries";
 import { createClient } from "@/lib/supabase/server";
 import { EnrollForm } from "@/components/rooms/enroll-form";
@@ -11,7 +11,6 @@ export default async function WaitlistPage() {
   const supabase = await createClient();
 
   const groups = await getWaitlist(supabase, session.profile.tenantId);
-  const today = todayISO();
   const totalWaiting = groups.reduce((sum, g) => sum + g.waiting.length, 0);
 
   return (
@@ -28,7 +27,7 @@ export default async function WaitlistPage() {
           href="/settings"
           className="text-[12.5px] font-semibold text-[var(--brand-primary)] hover:opacity-80"
         >
-          Set room capacity &rarr;
+          Manage rooms &rarr;
         </Link>
       </div>
 
@@ -80,6 +79,8 @@ export default async function WaitlistPage() {
                       {c.fullName}
                     </Link>
                     <div className="mt-0.5 text-[11.5px] text-gray-400">
+                      {age(c.dob)}
+                      {" · "}
                       {c.daysWaiting === null
                         ? "No waitlist date"
                         : `Waiting ${c.daysWaiting} ${c.daysWaiting === 1 ? "day" : "days"}`}
@@ -89,7 +90,7 @@ export default async function WaitlistPage() {
                   <EnrollForm
                     childId={c.id}
                     roomId={g.roomId}
-                    defaultStartDate={c.desiredStartDate ?? today}
+                    defaultStartDate={c.desiredStartDate ?? c.nextPeriodStart}
                   />
                 </li>
               ))}
