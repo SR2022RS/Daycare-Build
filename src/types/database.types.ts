@@ -595,6 +595,7 @@ export interface Database {
           room_id: string | null;
           waitlisted_at: string | null;
           desired_start_date: string | null;
+          pickup_code_word: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -616,6 +617,7 @@ export interface Database {
           room_id?: string | null;
           waitlisted_at?: string | null;
           desired_start_date?: string | null;
+          pickup_code_word?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1114,6 +1116,8 @@ export interface Database {
           is_active: boolean;
           failed_attempts: number;
           locked_until: string | null;
+          guardian_failed_attempts: number;
+          guardian_locked_until: string | null;
           last_seen_at: string | null;
           created_at: string;
         };
@@ -1126,6 +1130,8 @@ export interface Database {
           is_active?: boolean;
           failed_attempts?: number;
           locked_until?: string | null;
+          guardian_failed_attempts?: number;
+          guardian_locked_until?: string | null;
           last_seen_at?: string | null;
           created_at?: string;
         };
@@ -1136,7 +1142,8 @@ export interface Database {
         Row: {
           id: string;
           device_id: string;
-          profile_id: string;
+          profile_id: string | null;
+          guardian_id: string | null;
           tenant_id: string;
           location_id: string;
           expires_at: string;
@@ -1145,7 +1152,8 @@ export interface Database {
         Insert: {
           id?: string;
           device_id: string;
-          profile_id: string;
+          profile_id?: string | null;
+          guardian_id?: string | null;
           tenant_id: string;
           location_id: string;
           expires_at?: string;
@@ -1159,6 +1167,7 @@ export interface Database {
           id: string;
           device_id: string;
           profile_id: string | null;
+          guardian_id: string | null;
           outcome: KioskPinOutcome;
           created_at: string;
         };
@@ -1166,11 +1175,81 @@ export interface Database {
           id?: string;
           device_id: string;
           profile_id?: string | null;
+          guardian_id?: string | null;
           outcome: KioskPinOutcome;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["kiosk_pin_attempts"]["Insert"]>;
         Relationships: [];
+      };
+      guardian_pins: {
+        Row: {
+          guardian_id: string;
+          tenant_id: string;
+          pin_hash: string;
+          failed_attempts: number;
+          locked_until: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          guardian_id: string;
+          tenant_id: string;
+          pin_hash: string;
+          failed_attempts?: number;
+          locked_until?: string | null;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["guardian_pins"]["Insert"]>;
+        Relationships: [];
+      };
+      child_attendance: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          location_id: string;
+          child_id: string;
+          room_id: string | null;
+          checked_in_at: string;
+          checked_out_at: string | null;
+          in_by_guardian_id: string | null;
+          in_by_staff_id: string | null;
+          out_by_guardian_id: string | null;
+          out_by_staff_id: string | null;
+          out_override_reason: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          location_id: string;
+          child_id: string;
+          room_id?: string | null;
+          checked_in_at?: string;
+          checked_out_at?: string | null;
+          in_by_guardian_id?: string | null;
+          in_by_staff_id?: string | null;
+          out_by_guardian_id?: string | null;
+          out_by_staff_id?: string | null;
+          out_override_reason?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["child_attendance"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "child_attendance_child_id_fkey";
+            columns: ["child_id"];
+            isOneToOne: false;
+            referencedRelation: "children";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "child_attendance_room_id_fkey";
+            columns: ["room_id"];
+            isOneToOne: false;
+            referencedRelation: "rooms";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       attendance_breaks: {
         Row: {
@@ -1382,6 +1461,22 @@ export interface Database {
       generate_recurring_charges: {
         Args: { p_tenant_id: string; p_on: string };
         Returns: number;
+      };
+      admin_set_guardian_pin: {
+        Args: { p_guardian_id: string; p_pin: string };
+        Returns: undefined;
+      };
+      kiosk_identify_guardian_pin: {
+        Args: { p_device_token: string; p_pin: string };
+        Returns: string | null;
+      };
+      kiosk_check_child_in: {
+        Args: { p_child_id: string; p_room_id: string | null; p_guardian_id: string | null; p_staff_id: string | null };
+        Returns: string;
+      };
+      kiosk_check_child_out: {
+        Args: { p_child_id: string; p_guardian_id: string | null; p_staff_id: string | null; p_override_reason: string | null };
+        Returns: string;
       };
     };
     Enums: {
