@@ -48,16 +48,19 @@ export interface GuardianChild {
   present: boolean;
 }
 
+// `childList`, not `children`: React reserves the `children` prop for nested
+// JSX, and passing a data array through it works but reads as a rendering
+// mistake to every linter and every future reader.
 export function GuardianMenuView({
   guardianName,
-  children,
+  childList,
   confirmation,
   pending,
   onCancel,
   onChildAction,
 }: {
   guardianName: string;
-  children: GuardianChild[];
+  childList: GuardianChild[];
   confirmation: string | null;
   pending: boolean;
   onCancel: () => void;
@@ -77,14 +80,14 @@ export function GuardianMenuView({
         Hi, {guardianName.split(" ")[0]}
       </h1>
 
-      {children.length === 0 && (
+      {childList.length === 0 && (
         <p className="mb-4 text-sm text-red-400">
           No children are linked to your account at this location. Contact your director.
         </p>
       )}
 
       <div className="flex flex-col gap-2.5">
-        {children.map((child) => (
+        {childList.map((child) => (
           <button
             key={child.id}
             type="button"

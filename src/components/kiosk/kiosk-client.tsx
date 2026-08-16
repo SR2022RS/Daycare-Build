@@ -344,7 +344,7 @@ export function KioskClient({
         {view === "guardianMenu" && guardian && (
           <GuardianMenuView
             guardianName={guardian.guardianName}
-            children={guardian.children}
+            childList={guardian.children}
             confirmation={confirmation}
             pending={pending}
             onCancel={reset}
