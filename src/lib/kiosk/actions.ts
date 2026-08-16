@@ -399,20 +399,41 @@ export async function kioskCheckChildIn(sessionToken: string, childId: string): 
   const admin = createAdminClient();
 
   // Independent check #1 (action-side): does child_guardians actually link
-  // this guardian to this child?
-  const { data: link } = await admin
-    .from("child_guardians")
-    .select("child_id")
-    .eq("child_id", childId)
-    .eq("guardian_id", session.guardian_id)
-    .maybeSingle();
+  // this guardian to this child, AND is that child actually active at this
+  // kiosk's own location? The link alone isn't enough -- a guardian with
+  // children at two sites in one tenant could otherwise stand at the Site A
+  // lobby tablet and check in a Site B child by id: the link check would
+  // pass, the RPC's guardian_not_linked check would pass (it doesn't know
+  // which kiosk called it), and the visit would write against the child's
+  // own location_id, putting a phantom child in Site B's ratio while they
+  // are actually at Site A. guardianChildrenWithPresence already scopes the
+  // list this way; the action must be at least as strict as the list it
+  // renders. Same message as a missing link on purpose -- a distinct
+  // "wrong location" message would tell a caller which children exist at
+  // which site.
+  const [{ data: link }, { data: childAtLocation }] = await Promise.all([
+    admin
+      .from("child_guardians")
+      .select("child_id")
+      .eq("child_id", childId)
+      .eq("guardian_id", session.guardian_id)
+      .maybeSingle(),
+    admin
+      .from("children")
+      .select("id")
+      .eq("id", childId)
+      .eq("location_id", session.location_id)
+      .eq("status", "active")
+      .maybeSingle(),
+  ]);
 
-  if (!link) {
+  if (!link || !childAtLocation) {
     return { ok: false, message: "That child isn't linked to your account." };
   }
 
   // Independent check #2 (RPC-side): kiosk_check_child_in re-verifies the
-  // same relationship and raises guardian_not_linked if it doesn't hold.
+  // guardian/child relationship and raises guardian_not_linked if it
+  // doesn't hold.
   const { data: visitId, error } = await admin.rpc("kiosk_check_child_in", {
     p_child_id: childId,
     p_room_id: null,
@@ -439,14 +460,27 @@ export async function kioskCheckChildOut(sessionToken: string, childId: string):
 
   const admin = createAdminClient();
 
-  const { data: link } = await admin
-    .from("child_guardians")
-    .select("child_id")
-    .eq("child_id", childId)
-    .eq("guardian_id", session.guardian_id)
-    .maybeSingle();
+  // Same pair of independent checks as kioskCheckChildIn -- see that
+  // function's comment. Checkout has the same phantom-location failure mode
+  // as check-in (a Site A guardian closing a Site B child's visit by id) so
+  // it gets the identical location scoping, not just the link check.
+  const [{ data: link }, { data: childAtLocation }] = await Promise.all([
+    admin
+      .from("child_guardians")
+      .select("child_id")
+      .eq("child_id", childId)
+      .eq("guardian_id", session.guardian_id)
+      .maybeSingle(),
+    admin
+      .from("children")
+      .select("id")
+      .eq("id", childId)
+      .eq("location_id", session.location_id)
+      .eq("status", "active")
+      .maybeSingle(),
+  ]);
 
-  if (!link) {
+  if (!link || !childAtLocation) {
     return { ok: false, message: "That child isn't linked to your account." };
   }
 
