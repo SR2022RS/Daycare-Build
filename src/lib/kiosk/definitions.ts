@@ -10,3 +10,12 @@ export type KioskIdentifyResult =
   | { ok: false; message: string };
 
 export type KioskActionResult = { ok: boolean; message: string };
+
+export type GuardianIdentity =
+  | {
+      ok: true;
+      sessionToken: string;
+      guardianName: string;
+      children: { id: string; fullName: string; roomName: string | null; present: boolean }[];
+    }
+  | { ok: false; message: string };
