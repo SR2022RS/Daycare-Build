@@ -176,26 +176,81 @@ export function KioskClient({
     });
   }
 
-  // Same shape as runAction, but for the two child-check actions. It
-  // overrides the server's generic "Checked in."/"Checked out." with a
-  // message naming the child -- the person reading this is usually a parent
-  // at 8am with a bag in one hand, and "Sofia is checked in" is legible at a
-  // glance in a way "Success" is not. Failure messages from the server are
-  // shown verbatim (e.g. "That child isn't linked to your account."), since
-  // those are already specific and actionable.
-  function runChildAction(childName: string, direction: "in" | "out", fn: () => Promise<KioskActionResult>) {
+  // Same shape as runAction, but for the two child-check actions. Two
+  // deliberate differences from runAction:
+  //
+  // 1. It overrides the server's generic "Checked in."/"Checked out." with a
+  //    message naming the child -- the person reading this is usually a
+  //    parent at 8am with a bag in one hand, and "Sofia is checked in" is
+  //    legible at a glance in a way "Success" is not. Failure messages from
+  //    the server are shown verbatim (e.g. "That child isn't linked to your
+  //    account."), since those are already specific and actionable.
+  //
+  // 2. Success does NOT reset the kiosk. runAction's actions are one-per-
+  //    visit (you clock in once), but children come in siblings and by the
+  //    busload -- the spec's stated common case is "siblings are listed
+  //    together". Tearing the session down after each child would make a
+  //    parent of two re-enter their PIN between them, and make staff re-PIN
+  //    for every child off a bus. Instead `flipPresence` updates that one
+  //    child's state locally and the list comes back with it corrected.
+  //    Privacy is unchanged: bumpIdle() runs at the start and again when the
+  //    confirmation clears, so the tablet still blanks IDLE_RESET_MS after
+  //    the LAST tap -- the same window that was already open while the
+  //    person stood there reading the list.
+  function runChildAction(
+    childName: string,
+    direction: "in" | "out",
+    fn: () => Promise<KioskActionResult>,
+    flipPresence: () => void,
+  ) {
     bumpIdle();
     startTransition(async () => {
       const result = await fn();
       if (!result.ok) {
         setConfirmation(result.message);
-        setTimeout(() => setConfirmation(null), CONFIRM_RESET_MS);
+        setTimeout(() => {
+          setConfirmation(null);
+          bumpIdle();
+        }, CONFIRM_RESET_MS);
         return;
       }
+      flipPresence();
       const verb = direction === "in" ? "checked in" : "checked out";
       setConfirmation(`${childName} is ${verb}.`);
-      setTimeout(reset, CONFIRM_RESET_MS);
+      setTimeout(() => {
+        setConfirmation(null);
+        bumpIdle();
+      }, CONFIRM_RESET_MS);
     });
+  }
+
+  // Flip one child's presence in whichever list is on screen, so the button
+  // that just said "Check in" comes back saying "Check out" without a
+  // refetch. The server is authoritative -- this only runs after it has
+  // confirmed the write -- and the next PIN entry re-reads presence from the
+  // database, so the local copy can never outlive the session that made it.
+  function flipGuardianChild(childId: string) {
+    setGuardian((g) =>
+      g
+        ? {
+            ...g,
+            children: g.children.map((c) => (c.id === childId ? { ...c, present: !c.present } : c)),
+          }
+        : g,
+    );
+  }
+
+  function flipRosterChild(childId: string) {
+    const flip = (c: RosterChild) => (c.id === childId ? { ...c, present: !c.present } : c);
+    setRoster((r) =>
+      r
+        ? {
+            ...r,
+            rooms: r.rooms.map((room) => ({ ...room, children: room.children.map(flip) })),
+            unassigned: r.unassigned.map(flip),
+          }
+        : r,
+    );
   }
 
   function openRoster() {
@@ -294,10 +349,14 @@ export function KioskClient({
             pending={pending}
             onCancel={reset}
             onChildAction={(child) =>
-              runChildAction(child.fullName, child.present ? "out" : "in", () =>
-                child.present
-                  ? kioskCheckChildOut(guardian.sessionToken, child.id)
-                  : kioskCheckChildIn(guardian.sessionToken, child.id),
+              runChildAction(
+                child.fullName,
+                child.present ? "out" : "in",
+                () =>
+                  child.present
+                    ? kioskCheckChildOut(guardian.sessionToken, child.id)
+                    : kioskCheckChildIn(guardian.sessionToken, child.id),
+                () => flipGuardianChild(child.id),
               )
             }
           />
@@ -315,8 +374,11 @@ export function KioskClient({
               setView("menu");
             }}
             onChildAction={(child, direction) =>
-              runChildAction(child.fullName, direction, () =>
-                kioskStaffCheckChild(identified.sessionToken, child.id, direction),
+              runChildAction(
+                child.fullName,
+                direction,
+                () => kioskStaffCheckChild(identified.sessionToken, child.id, direction),
+                () => flipRosterChild(child.id),
               )
             }
           />
