@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { INTENSIVE, buildIcs } from "@/lib/intensive/config";
 import { confirmationHtml, confirmationSubject } from "@/lib/intensive/reminders";
 import { sendEmail } from "@/lib/email/resend";
+import { isIntensiveSession } from "@/lib/stripe/routing";
 import type { Database } from "@/types/database.types";
 
 /**
@@ -73,6 +74,17 @@ export async function POST(request: Request) {
         // an unpaid seat as confirmed. Retrieving through our own pinned
         // client guarantees the modern shape no matter how it arrived.
         const fresh = await stripe.checkout.sessions.retrieve(event.data.object.id);
+
+        // This account will also carry tuition payments for the childcare
+        // portal, and both webhooks subscribe to the same events. Anything
+        // that is not an Intensive purchase is acknowledged and ignored --
+        // 200, never 5xx, or Stripe would redeliver another product's event
+        // forever.
+        if (!(await isIntensiveSession(fresh))) {
+          console.log(`[stripe-webhook] ${event.type} -> ${fresh.id} is not an Intensive session; ignoring`);
+          return Response.json({ received: true, ignored: true });
+        }
+
         await recordSession(fresh, event.type);
         break;
       }
@@ -97,6 +109,24 @@ function statusFor(session: Stripe.Checkout.Session, eventType: string): Payment
   return "paid";
 }
 
+/**
+ * `metadata` is caller-supplied text, but `tenant_id` is a uuid column. A
+ * malformed value would raise inside the insert, surface as a 500, and make
+ * Stripe redeliver the same event indefinitely. Fall back to the configured
+ * tenant and log instead -- the seat is real and paid either way.
+ */
+function tenantIdFrom(raw: string | undefined, sessionId: string): string {
+  if (!raw) return INTENSIVE.tenantId;
+  if (UUID_PATTERN.test(raw)) return raw;
+
+  console.error(
+    `[stripe-webhook] session ${sessionId} carried a non-uuid tenantId; using the configured tenant`,
+  );
+  return INTENSIVE.tenantId;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function recordSession(session: Stripe.Checkout.Session, eventType: string) {
   const metadata = session.metadata ?? {};
   const email = session.customer_details?.email ?? session.customer_email;
@@ -109,7 +139,7 @@ async function recordSession(session: Stripe.Checkout.Session, eventType: string
   const status = statusFor(session, eventType);
 
   const row: InsertRow = {
-    tenant_id: metadata.tenantId || INTENSIVE.tenantId,
+    tenant_id: tenantIdFrom(metadata.tenantId, session.id),
     first_name: metadata.firstName || session.customer_details?.name?.split(" ")[0] || "Unknown",
     last_name: metadata.lastName || session.customer_details?.name?.split(" ").slice(1).join(" ") || "",
     email,

@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 
 import { FUNNEL_HOSTS, INTENSIVE } from "@/lib/intensive/config";
 import { getStripe, isStripeConfigured } from "@/lib/stripe/client";
+import { INTENSIVE_PRODUCT_MARKER } from "@/lib/stripe/routing";
 import { RegistrationSchema, type CheckoutResult } from "@/lib/intensive/definitions";
 
 /**
@@ -57,9 +58,24 @@ export async function startRegistration(formData: FormData): Promise<CheckoutRes
       // is on the session; payment_intent_data.metadata copies it onto the
       // PaymentIntent so a refund investigated in the Dashboard still shows
       // who it belonged to.
-      metadata: { firstName, lastName, tenantId: INTENSIVE.tenantId },
+      //
+      // `product` is what lets the webhook tell an Intensive purchase apart
+      // from tuition on the same Stripe account -- see lib/stripe/routing.ts.
+      // Without it the webhook falls back to a line-item price lookup, which
+      // still works but costs an extra API call per event.
+      metadata: {
+        firstName,
+        lastName,
+        tenantId: INTENSIVE.tenantId,
+        product: INTENSIVE_PRODUCT_MARKER,
+      },
       payment_intent_data: {
-        metadata: { firstName, lastName, tenantId: INTENSIVE.tenantId },
+        metadata: {
+          firstName,
+          lastName,
+          tenantId: INTENSIVE.tenantId,
+          product: INTENSIVE_PRODUCT_MARKER,
+        },
       },
 
       success_url: `${origin}/intensive/confirmed?session_id={CHECKOUT_SESSION_ID}`,
