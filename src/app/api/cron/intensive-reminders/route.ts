@@ -1,4 +1,4 @@
-import { INTENSIVE } from "@/lib/intensive/config";
+import { INTENSIVE, buildIcs } from "@/lib/intensive/config";
 import { REMINDER_STAGES, daysUntilEvent, reminderHtml, stageDueToday } from "@/lib/intensive/reminders";
 import { sendEmail } from "@/lib/email/resend";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -82,6 +82,17 @@ export async function GET(request: Request) {
       replyTo: INTENSIVE.contactEmail,
       subject: stage.subject,
       html: reminderHtml(stage, registration.first_name),
+      ...(stage.attachCalendar
+        ? {
+            attachments: [
+              {
+                filename: "daycare-owner-intensive.ics",
+                content: buildIcs(),
+                contentType: "text/calendar; charset=utf-8; method=PUBLISH",
+              },
+            ],
+          }
+        : {}),
     });
 
     if (result.ok) {

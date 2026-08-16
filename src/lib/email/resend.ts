@@ -21,6 +21,11 @@ export async function sendEmail(params: {
   from?: string;
   /** Where replies land, when that differs from the sending domain. */
   replyTo?: string;
+  /**
+   * Files to attach. `content` is the raw string; it is base64-encoded here
+   * so callers never have to think about the wire format.
+   */
+  attachments?: { filename: string; content: string; contentType?: string }[];
 }): Promise<SendEmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -37,6 +42,15 @@ export async function sendEmail(params: {
       from: params.from || process.env.EMAIL_FROM || DEFAULT_FROM,
       to: [params.to],
       ...(params.replyTo ? { reply_to: params.replyTo } : {}),
+      ...(params.attachments?.length
+        ? {
+            attachments: params.attachments.map((a) => ({
+              filename: a.filename,
+              content: Buffer.from(a.content, "utf8").toString("base64"),
+              ...(a.contentType ? { content_type: a.contentType } : {}),
+            })),
+          }
+        : {}),
       subject: params.subject,
       html: params.html,
     }),

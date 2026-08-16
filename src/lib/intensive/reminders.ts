@@ -15,6 +15,41 @@ export interface ReminderStage {
   subject: string;
   /** Lead paragraph. The shared details block is appended to all of them. */
   lead: (firstName: string) => string;
+  /**
+   * Attach the .ics. Off for the morning-of note: the event is hours away,
+   * so a calendar invite is either already saved or too late to be useful,
+   * and an attachment on a "leaving now" email is just noise.
+   */
+  attachCalendar: boolean;
+}
+
+/**
+ * Canonical public URL, used for the "add to calendar" link in emails.
+ * Emails have no request to derive a host from, so this is the one place a
+ * funnel URL is written down rather than inferred.
+ */
+export const PUBLIC_ORIGIN = "https://akpadaycareblueprint.com";
+
+export const CALENDAR_URL = `${PUBLIC_ORIGIN}/intensive/calendar.ics`;
+
+/**
+ * Attachment plus a link, deliberately both. Gmail and Apple Mail turn an
+ * .ics attachment into a one-tap "Add to calendar" chip, but plenty of
+ * clients (and most webmail on mobile) just show a file the reader has to
+ * download and open. The link is the fallback that always works.
+ */
+function calendarBlock(): string {
+  return `
+      <p style="margin:0 0 18px;">
+        <a href="${CALENDAR_URL}"
+           style="display:inline-block;background:#0A0A0D;color:#F5F3EE;text-decoration:none;
+                  padding:11px 18px;border-radius:8px;font-size:14px;font-weight:600;">
+          Add to calendar
+        </a>
+      </p>
+      <p style="color:#64748B;font-size:12.5px;line-height:1.6;margin:0 0 18px;">
+        The calendar file is attached too — open it to save the date, or use the button above.
+      </p>`;
 }
 
 export const REMINDER_STAGES: ReminderStage[] = [
@@ -24,6 +59,7 @@ export const REMINDER_STAGES: ReminderStage[] = [
     subject: `One week out — ${INTENSIVE.name}`,
     lead: (name) =>
       `${name}, we're one week out. Start pulling together the numbers you already have — a rent quote, a space you're considering, a budget you drafted. The more you bring, the more we can work on rather than talk about.`,
+    attachCalendar: true,
   },
   {
     id: "day",
@@ -31,6 +67,7 @@ export const REMINDER_STAGES: ReminderStage[] = [
     subject: `Tomorrow — ${INTENSIVE.name}`,
     lead: (name) =>
       `${name}, it's tomorrow. Doors open at ${INTENSIVE.doorsOpen} and we start on time at noon. Bring your state, your numbers, and something to write with.`,
+    attachCalendar: true,
   },
   {
     id: "morning",
@@ -38,6 +75,7 @@ export const REMINDER_STAGES: ReminderStage[] = [
     subject: `Today — doors open at ${INTENSIVE.doorsOpen}`,
     lead: (name) =>
       `${name}, today's the day. Doors open at ${INTENSIVE.doorsOpen} and we start at noon sharp. See you there.`,
+    attachCalendar: false,
   },
 ];
 
@@ -73,6 +111,8 @@ export function reminderHtml(stage: ReminderStage, firstName: string): string {
         <tr><td style="padding:3px 14px 3px 0;color:#64748B;">Time</td><td>12:00 PM – 5:00 PM ${INTENSIVE.timezoneLabel} · doors ${INTENSIVE.doorsOpen}</td></tr>
         <tr><td style="padding:3px 14px 3px 0;color:#64748B;vertical-align:top;">Where</td><td>${where}</td></tr>
       </table>
+
+      ${stage.attachCalendar ? calendarBlock() : ""}
 
       <p style="line-height:1.6;color:#334155;margin:0 0 18px;">
         Bring your state — or the state you plan to open in — any numbers you already have,
@@ -117,6 +157,7 @@ export function confirmationHtml({ firstName, amountCents, currency }: Confirmat
         <p><strong>Time:</strong> 12:00 PM – 5:00 PM Eastern (${INTENSIVE.timezoneLabel}) · doors open ${INTENSIVE.doorsOpen}</p>
         ${whereBlock}
         <p><strong>Paid:</strong> $${(amountCents / 100).toFixed(2)} ${String(currency).toUpperCase()} · one payment</p>
+        ${calendarBlock()}
         <p style="line-height:1.6;color:#334155;">
           Bring your state, any numbers you already have, and something to write with.
           Doors open at ${INTENSIVE.doorsOpen} — come early and get settled.

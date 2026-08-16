@@ -2,7 +2,7 @@ import type Stripe from "stripe";
 
 import { getStripe } from "@/lib/stripe/client";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { INTENSIVE } from "@/lib/intensive/config";
+import { INTENSIVE, buildIcs } from "@/lib/intensive/config";
 import { confirmationHtml, confirmationSubject } from "@/lib/intensive/reminders";
 import { sendEmail } from "@/lib/email/resend";
 import type { Database } from "@/types/database.types";
@@ -163,5 +163,14 @@ async function sendConfirmation(row: InsertRow) {
       amountCents: row.amount_cents,
       currency: row.currency ?? "usd",
     }),
+    // Built from the same config the page and .ics route use, so a date
+    // change updates the invite buyers receive without touching this file.
+    attachments: [
+      {
+        filename: "daycare-owner-intensive.ics",
+        content: buildIcs(),
+        contentType: "text/calendar; charset=utf-8; method=PUBLISH",
+      },
+    ],
   });
 }
