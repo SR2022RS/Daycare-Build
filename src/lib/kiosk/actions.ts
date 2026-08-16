@@ -5,7 +5,12 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { GuardianIdentity, KioskActionResult, KioskIdentifyResult } from "@/lib/kiosk/definitions";
+import type {
+  GuardianIdentity,
+  KioskActionResult,
+  KioskIdentifyResult,
+  StaffRosterResult,
+} from "@/lib/kiosk/definitions";
 import { mapChildAttendanceError as mapChildAttendanceErrorPure } from "@/lib/kiosk/errors";
 
 const GENERIC_KIOSK_ERROR = "This kiosk isn't set up. Contact your director.";
@@ -562,6 +567,74 @@ export async function kioskStaffCheckChild(
 
   revalidatePath("/attendance");
   return { ok: true, message: "Checked out." };
+}
+
+// The staff roster screen at the kiosk (Task 5's "I'm staff" -> menu ->
+// child check-in/out flow). No existing action returned "every child at this
+// location, grouped by room, with today's presence" -- kioskIdentify only
+// returns the staff member's own clock state, and
+// guardianChildrenWithPresence is scoped to one guardian's linked children.
+// This mirrors that helper's shape (same room-lookup + open-visit-set
+// pattern) but starts from every active child at the session's own
+// tenant+location rather than a guardian's linked subset, since staff may
+// vouch for any child at their location (see kioskStaffCheckChild above).
+// Gated by resolveSession, so only a staff session -- never a guardian one
+// -- can pull this list, and it is scoped to session.tenant_id AND
+// session.location_id, the same two-column scope kioskStaffCheckChild
+// re-checks before writing.
+export async function kioskStaffRoster(sessionToken: string): Promise<StaffRosterResult> {
+  const session = await resolveSession(sessionToken);
+  if (!session) return { ok: false, message: SESSION_EXPIRED };
+
+  const admin = createAdminClient();
+
+  const { data: children } = await admin
+    .from("children")
+    .select("id, full_name, room_id")
+    .eq("tenant_id", session.tenant_id)
+    .eq("location_id", session.location_id)
+    .eq("status", "active")
+    .order("full_name");
+
+  if (!children || children.length === 0) {
+    return { ok: true, rooms: [], unassigned: [] };
+  }
+
+  const roomIds = [...new Set(children.map((child) => child.room_id).filter((id): id is string => Boolean(id)))];
+
+  const [{ data: rooms }, { data: openVisits }] = await Promise.all([
+    roomIds.length
+      ? admin.from("rooms").select("id, name").in("id", roomIds).order("name")
+      : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+    admin
+      .from("child_attendance")
+      .select("child_id")
+      .in(
+        "child_id",
+        children.map((child) => child.id),
+      )
+      .is("checked_out_at", null),
+  ]);
+
+  const presentChildIds = new Set((openVisits ?? []).map((visit) => visit.child_id));
+
+  type RosterChild = { id: string; fullName: string; present: boolean };
+  const roomsById = new Map<string, { id: string; name: string; children: RosterChild[] }>(
+    (rooms ?? []).map((room) => [room.id, { id: room.id, name: room.name, children: [] }]),
+  );
+  const unassigned: RosterChild[] = [];
+
+  for (const child of children) {
+    const entry = { id: child.id, fullName: child.full_name, present: presentChildIds.has(child.id) };
+    const room = child.room_id ? roomsById.get(child.room_id) : undefined;
+    if (room) {
+      room.children.push(entry);
+    } else {
+      unassigned.push(entry);
+    }
+  }
+
+  return { ok: true, rooms: [...roomsById.values()], unassigned };
 }
 
 // ── Director-facing kiosk management (authenticated, RLS-enforced) ──────
