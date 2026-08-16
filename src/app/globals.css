@@ -11,6 +11,20 @@
   --brand-primary: #e30c7b; /* AKPA pink */
   --brand-accent: #3cc0d8; /* AKPA cyan */
   --brand-ink: #0a0a0d; /* near-black, brand/marketing surfaces only */
+
+  /* Signal tokens -- meaning, not identity. A tenant can rebrand to any
+     palette they like; "this credential expires in 9 days" must still read as
+     urgent. lib/tenant/theme.ts must NEVER write these.
+
+     The division that keeps the UI legible:
+       brand-accent  neutral data fills (meters, avatars) -- never severity
+       brand-primary navigation and calls to action -- never severity
+       signal-*      compliance and money only
+     If routine numbers are never coloured, colour means something. */
+  --signal-critical: #b42318;
+  --signal-warn: #b54708;
+  --signal-ok: #067647;
+  --signal-muted: #667085;
 }
 
 @theme inline {

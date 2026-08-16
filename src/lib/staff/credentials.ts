@@ -23,6 +23,21 @@ export const CREDENTIAL_LABELS: Record<CredentialType, string> = {
   understanding_licensing: "Understanding Licensing",
 };
 
+/**
+ * Codes for dense UI. The full labels are correct on a staff record, but
+ * repeating "CARI (Child Abuse Record Information), CHRI (Criminal History /
+ * Fingerprint)" once per row turns a roster into a wall of identical text.
+ */
+export const CREDENTIAL_SHORT_LABELS: Record<CredentialType, string> = {
+  cari: "CARI",
+  chri: "CHRI",
+  mantoux: "Mantoux",
+  medical_exam: "Medical exam",
+  orientation_new_hire: "Orientation",
+  orientation_annual: "Annual refresher",
+  understanding_licensing: "Licensing",
+};
+
 export const ALL_CREDENTIAL_TYPES: CredentialType[] = [
   "orientation_new_hire",
   "cari",
@@ -167,4 +182,128 @@ export async function getExpiringCredentialsList(
       daysUntil,
     };
   });
+}
+
+export interface ClearanceRollup {
+  /** Staff on the supervision gate (role = 'staff'). */
+  total: number;
+  clearedCount: number;
+  /** One row per gating credential, with how many staff still lack it. */
+  perCredential: { type: CredentialType; label: string; missingCount: number }[];
+  /**
+   * Staff grouped by the exact set of credentials they are missing. 27 people
+   * missing the same three is one row, not 27 identical ones.
+   */
+  groups: { key: string; missing: CredentialType[]; staff: { id: string; name: string }[] }[];
+  /** Nearly-cleared staff, most complete first -- the actionable slice. */
+  closest: { id: string; name: string; clearedOf: number; total: number }[];
+}
+
+/**
+ * Everything the dashboard needs about solo-supervision readiness, in one
+ * pass.
+ *
+ * `getNotClearedList` answers "who is not cleared", which produced a page
+ * listing every uncleared staffer beside the same 95-character credential
+ * string. A director cannot act on that. This answers the questions they
+ * actually have: how far off are we, which credential is the bottleneck, and
+ * who is closest to clearing.
+ */
+export async function getClearanceRollup(
+  supabase: SupabaseClient<Database>,
+  tenantId: string,
+): Promise<ClearanceRollup> {
+  const { data: staff } = await supabase
+    .from("profiles")
+    .select("id, full_name")
+    .eq("tenant_id", tenantId)
+    .eq("role", "staff")
+    .order("full_name");
+
+  const roster = staff ?? [];
+  const empty: ClearanceRollup = {
+    total: 0,
+    clearedCount: 0,
+    perCredential: SUPERVISION_GATE_CREDENTIALS.map((type) => ({
+      type,
+      label: CREDENTIAL_SHORT_LABELS[type],
+      missingCount: 0,
+    })),
+    groups: [],
+    closest: [],
+  };
+  if (roster.length === 0) return empty;
+
+  const staffIds = roster.map((s) => s.id);
+
+  const [{ data: gateRows }, clearedCounts] = await Promise.all([
+    supabase
+      .from("staff_credentials")
+      .select("staff_id, credential_type, date_cleared")
+      .in("staff_id", staffIds)
+      .in("credential_type", SUPERVISION_GATE_CREDENTIALS),
+    getClearedCountMap(supabase, staffIds),
+  ]);
+
+  const clearedByStaff = new Map<string, Set<CredentialType>>();
+  for (const row of gateRows ?? []) {
+    if (!row.date_cleared) continue;
+    if (!clearedByStaff.has(row.staff_id)) clearedByStaff.set(row.staff_id, new Set());
+    clearedByStaff.get(row.staff_id)!.add(row.credential_type);
+  }
+
+  const missingCounts = new Map<CredentialType, number>(
+    SUPERVISION_GATE_CREDENTIALS.map((type) => [type, 0]),
+  );
+  const groupMap = new Map<string, { missing: CredentialType[]; staff: { id: string; name: string }[] }>();
+  let clearedCount = 0;
+
+  for (const person of roster) {
+    const cleared = clearedByStaff.get(person.id);
+    const missing = SUPERVISION_GATE_CREDENTIALS.filter((c) => !cleared?.has(c));
+
+    if (missing.length === 0) {
+      clearedCount += 1;
+      continue;
+    }
+
+    for (const type of missing) {
+      missingCounts.set(type, (missingCounts.get(type) ?? 0) + 1);
+    }
+
+    // Order is fixed by SUPERVISION_GATE_CREDENTIALS, so the same gap always
+    // produces the same key regardless of row order from the database.
+    const key = missing.join("+");
+    if (!groupMap.has(key)) groupMap.set(key, { missing, staff: [] });
+    groupMap.get(key)!.staff.push({ id: person.id, name: person.full_name });
+  }
+
+  const groups = [...groupMap.entries()]
+    .map(([key, value]) => ({ key, ...value }))
+    .sort((a, b) => b.staff.length - a.staff.length);
+
+  const closest = roster
+    .filter((person) => (clearedByStaff.get(person.id)?.size ?? 0) < SUPERVISION_GATE_CREDENTIALS.length)
+    .map((person) => ({
+      id: person.id,
+      name: person.full_name,
+      clearedOf: clearedCounts[person.id] ?? 0,
+      total: ALL_CREDENTIAL_TYPES.length,
+    }))
+    // Most complete first: these are the people one document away from
+    // clearing, so they are where a director's next hour pays off.
+    .sort((a, b) => b.clearedOf - a.clearedOf)
+    .slice(0, 5);
+
+  return {
+    total: roster.length,
+    clearedCount,
+    perCredential: SUPERVISION_GATE_CREDENTIALS.map((type) => ({
+      type,
+      label: CREDENTIAL_SHORT_LABELS[type],
+      missingCount: missingCounts.get(type) ?? 0,
+    })),
+    groups,
+    closest,
+  };
 }
