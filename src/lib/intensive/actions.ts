@@ -36,7 +36,7 @@ export async function startRegistration(formData: FormData): Promise<CheckoutRes
   if (!stripe || !isStripeConfigured() || !priceId) {
     return {
       status: "unavailable",
-      message: `Card payments aren't switched on for this session yet, so nothing was charged and your details weren't saved. Email ${INTENSIVE.senderEmail} or call ${INTENSIVE.phone} and Shikara will hold your seat directly.`,
+      message: `Card payments aren't switched on for this session yet, so nothing was charged and your details weren't saved. Email ${INTENSIVE.contactEmail} or call ${INTENSIVE.phone} and Shikara will hold your seat directly.`,
     };
   }
 
@@ -84,7 +84,7 @@ export async function startRegistration(formData: FormData): Promise<CheckoutRes
     console.error("[intensive] checkout session creation failed", error);
     return {
       status: "error",
-      message: `We couldn't open the payment page. No charge was made — try again, or email ${INTENSIVE.senderEmail}.`,
+      message: `We couldn't open the payment page. No charge was made — try again, or email ${INTENSIVE.contactEmail}.`,
     };
   }
 }
