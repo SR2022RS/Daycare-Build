@@ -39,7 +39,7 @@ export function SidebarShell({ logoUrl, topSlot, fullName, role, children }: Sid
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="relative">
+        <div className="relative shrink-0">
           <SidebarBrandMark logoUrl={logoUrl} />
           <button
             onClick={() => setSidebarOpen(false)}
@@ -49,7 +49,10 @@ export function SidebarShell({ logoUrl, topSlot, fullName, role, children }: Sid
           </button>
         </div>
 
-        {topSlot}
+        {/* Brand, location switcher and user menu stay pinned; only the nav
+            scrolls. shrink-0 stops flexbox squeezing them when the nav is
+            long. */}
+        <div className="shrink-0">{topSlot}</div>
 
         <NavList sections={navSections} onNavigate={() => setSidebarOpen(false)} />
 

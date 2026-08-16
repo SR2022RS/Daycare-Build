@@ -11,7 +11,7 @@ export function UserMenu({ fullName, role }: { fullName: string; role: string })
     .slice(0, 2);
 
   return (
-    <div className="border-t border-white/10 px-4 py-4">
+    <div className="shrink-0 border-t border-white/10 px-4 py-4">
       <div className="flex items-center gap-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--brand-accent)]/15 text-xs font-semibold text-[var(--brand-accent)]">
           {initials}

@@ -8,8 +8,13 @@ import type { NavSection } from "@/types/nav";
 export function NavList({ sections, onNavigate }: { sections: NavSection[]; onNavigate?: () => void }) {
   const pathname = usePathname();
 
+  // min-h-0 is load-bearing, not decorative: a flex child defaults to
+  // min-height:auto, so without it this nav refuses to shrink below its own
+  // content, pushes the user menu off the bottom of the h-screen sidebar, and
+  // overflow-y-auto never engages. That hid Settings, My profile and Sign out
+  // entirely once the Billing and Waitlist links were added.
   return (
-    <nav className="flex-1 space-y-6 px-3 py-4">
+    <nav className="min-h-0 flex-1 space-y-6 overflow-y-auto px-3 py-4">
       {sections.map((section, i) => (
         <div key={section.label ?? i}>
           {section.label && (
