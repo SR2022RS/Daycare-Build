@@ -2,7 +2,9 @@
 
 import { headers } from "next/headers";
 
+import { getClientIp } from "@/lib/forms/access-log";
 import { FUNNEL_HOSTS, INTENSIVE } from "@/lib/intensive/config";
+import { isCheckoutRateLimited } from "@/lib/intensive/rate-limit";
 import { getStripe, isStripeConfigured } from "@/lib/stripe/client";
 import { INTENSIVE_PRODUCT_MARKER } from "@/lib/stripe/routing";
 import { RegistrationSchema, type CheckoutResult } from "@/lib/intensive/definitions";
@@ -29,6 +31,17 @@ export async function startRegistration(formData: FormData): Promise<CheckoutRes
 
   if (!parsed.success) {
     return { status: "invalid", errors: fieldErrors(parsed.error) };
+  }
+
+  // Throttle before touching Stripe. This action is public and unauthenticated,
+  // so without it a script can create Checkout Sessions in a loop on the same
+  // account tuition billing will use. Checked after validation so malformed
+  // spam doesn't consume a legitimate visitor's allowance.
+  if (isCheckoutRateLimited(await getClientIp())) {
+    return {
+      status: "error",
+      message: `Too many attempts from this connection. Wait a few minutes and try again, or email ${INTENSIVE.contactEmail} and Shikara will hold your seat directly.`,
+    };
   }
 
   const stripe = getStripe();
