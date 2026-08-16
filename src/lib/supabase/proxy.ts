@@ -39,7 +39,9 @@ const PUBLIC_PATHS = [
   // Vercel's cron runner calls this server-to-server with no cookie, so the
   // proxy must not bounce it to /login. Authorized by the CRON_SECRET bearer
   // token it checks itself -- see app/api/cron/intensive-reminders/route.ts.
-  "/api/cron/",
+  // Exact path, not a prefix: "/api/cron/" would silently make every future
+  // cron route public at this layer, whether or not it checks a secret.
+  "/api/cron/intensive-reminders",
 ];
 
 // Carved back out of the public tree: /intensive/registrations is the
