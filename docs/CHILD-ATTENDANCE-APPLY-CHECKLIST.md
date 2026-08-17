@@ -1,13 +1,47 @@
 # Child Check-In / Check-Out — Post-Apply Checklist
 
-## Read this first
+## STATUS: applied to production 2026-08-17
 
-Nothing in this feature has ever run against a database. Following this
-project's established precedent, no SQL was applied by the work that wrote
-it: the Supabase project is not linked here and the database is live
-production. The migrations were authored, type-checked against
-hand-maintained types, and reviewed — nothing more. **Every check below is
-one you run yourself, in order, after applying.**
+All four migrations were applied to `trezwfirgugzuphaflwm` (tenant *AKPA
+University*) on 2026-08-17, each inside its own transaction, and the
+verification below was run. **Sections 2 through 7 are done and passing.**
+
+Verified automatically, against the real database:
+
+- **§2** — both tables, all four functions, all three `child_attendance`
+  check constraints, `kiosk_sessions_actor`, `children.pickup_code_word`,
+  the guardian lockout columns, and all four indexes including
+  `child_attendance_one_open_visit`.
+- **§3** — the grant table matches exactly. `anon` can execute none of the
+  four. `authenticated` can execute only `admin_set_guardian_pin`.
+- **§4** — proven with a real row in the table, not an empty one: a hashed
+  PIN was inserted, then read back as `authenticated` and as `anon`. Both
+  saw zero rows. `child_attendance` likewise returns nothing to an
+  `authenticated` role carrying no tenant claim.
+- **§5** — a double check-in returns the same visit id and leaves exactly one
+  open visit; check-out closes it; a second check-out raises `no_open_visit`.
+- **§6** — every constraint refuses what it should: both actors, neither
+  actor, both out-actors, and a kiosk session with no actor.
+- **§7** — an unlinked guardian is refused **on an open visit** (the case
+  that matters), the visit stays open, and no departure actor is written. A
+  room at another location is refused. The guard order is
+  `no_open_visit` → `guardian_not_linked` → `staff_not_in_tenant`, which is
+  correct: there is no visit to falsify until one exists.
+
+Every one of those write-based checks ran inside a transaction that was
+rolled back, including the guardians and rooms they needed as fixtures.
+`child_attendance` still holds **zero rows** — no test visit was left in the
+audit table.
+
+**Still outstanding, and they need a human:** §8 (guardian lockout — needs a
+registered kiosk device and five deliberate wrong PINs) and §9 (the door
+walkthrough — needs a real tablet, a real guardian, and a real child). The
+database currently has 1 child, 0 guardians, 0 rooms and 0 kiosk devices, so
+none of that can be exercised until the centre's data is entered.
+
+Original pre-apply note, kept for the record: following this project's
+established precedent, no SQL was applied by the work that wrote these
+migrations; they were authored, type-checked and reviewed only.
 
 This feature ends at a tablet mounted by a door that parents use
 unsupervised, and its output is the attendance record a licensing or subsidy
