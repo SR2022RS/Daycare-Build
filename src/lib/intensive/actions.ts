@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 
 import { getClientIp } from "@/lib/forms/access-log";
-import { FUNNEL_HOSTS, INTENSIVE } from "@/lib/intensive/config";
+import { FUNNEL_HOSTS, INTENSIVE, isWaitlist } from "@/lib/intensive/config";
 import { isCheckoutRateLimited } from "@/lib/intensive/rate-limit";
 import { getStripe, isStripeConfigured } from "@/lib/stripe/client";
 import {
@@ -44,6 +44,17 @@ import { waitlistHtml, waitlistSubject } from "@/lib/intensive/waitlist-email";
 export async function startRegistration(
   formData: FormData,
 ): Promise<CheckoutResult> {
+  // Between sessions nothing is for sale. /intensive/checkout already
+  // redirects to the waitlist, but this server action is a public endpoint of
+  // its own: refuse here too, so a cached page or a replayed request cannot
+  // open a payment page for a session that has already run.
+  if (isWaitlist) {
+    return {
+      status: "unavailable",
+      message: `Seats for the last session are closed and nothing was charged. Join the waitlist on the main page to hear about the next date, or email ${INTENSIVE.contactEmail}.`,
+    };
+  }
+
   const parsed = RegistrationSchema.safeParse({
     firstName: formData.get("firstName"),
     lastName: formData.get("lastName"),
