@@ -1,0 +1,226 @@
+# Review package: 0a096c4..26d8ceb
+
+## Commits
+26d8ceb Fix round 1: scope guardian check-in/out to kiosk location, fix error mapping
+
+## Files changed
+ src/lib/kiosk/actions.ts     | 66 +++++++++++++++++++++++++++++++++-----------
+ src/lib/kiosk/errors.test.ts | 27 +++++++++++++++++-
+ src/lib/kiosk/errors.ts      | 23 ++++++++++++---
+ 3 files changed, 95 insertions(+), 21 deletions(-)
+
+## Diff
+diff --git a/src/lib/kiosk/actions.ts b/src/lib/kiosk/actions.ts
+index 21c95ca..0dff9e3 100644
+--- a/src/lib/kiosk/actions.ts
++++ b/src/lib/kiosk/actions.ts
+@@ -392,34 +392,55 @@ export async function kioskFileIncident(
+ // null so the RPC falls back to the child's assigned room; a guardian at
+ // this kiosk has no room picker.
+ export async function kioskCheckChildIn(sessionToken: string, childId: string): Promise<KioskActionResult> {
+   const session = await resolveGuardianSession(sessionToken);
+   if (!session) return { ok: false, message: SESSION_EXPIRED };
+   if (!childId) return { ok: false, message: GENERIC_KIOSK_ERROR };
+ 
+   const admin = createAdminClient();
+ 
+   // Independent check #1 (action-side): does child_guardians actually link
+-  // this guardian to this child?
+-  const { data: link } = await admin
+-    .from("child_guardians")
+-    .select("child_id")
+-    .eq("child_id", childId)
+-    .eq("guardian_id", session.guardian_id)
+-    .maybeSingle();
++  // this guardian to this child, AND is that child actually active at this
++  // kiosk's own location? The link alone isn't enough -- a guardian with
++  // children at two sites in one tenant could otherwise stand at the Site A
++  // lobby tablet and check in a Site B child by id: the link check would
++  // pass, the RPC's guardian_not_linked check would pass (it doesn't know
++  // which kiosk called it), and the visit would write against the child's
++  // own location_id, putting a phantom child in Site B's ratio while they
++  // are actually at Site A. guardianChildrenWithPresence already scopes the
++  // list this way; the action must be at least as strict as the list it
++  // renders. Same message as a missing link on purpose -- a distinct
++  // "wrong location" message would tell a caller which children exist at
++  // which site.
++  const [{ data: link }, { data: childAtLocation }] = await Promise.all([
++    admin
++      .from("child_guardians")
++      .select("child_id")
++      .eq("child_id", childId)
++      .eq("guardian_id", session.guardian_id)
++      .maybeSingle(),
++    admin
++      .from("children")
++      .select("id")
++      .eq("id", childId)
++      .eq("location_id", session.location_id)
++      .eq("status", "active")
++      .maybeSingle(),
++  ]);
+ 
+-  if (!link) {
++  if (!link || !childAtLocation) {
+     return { ok: false, message: "That child isn't linked to your account." };
+   }
+ 
+   // Independent check #2 (RPC-side): kiosk_check_child_in re-verifies the
+-  // same relationship and raises guardian_not_linked if it doesn't hold.
++  // guardian/child relationship and raises guardian_not_linked if it
++  // doesn't hold.
+   const { data: visitId, error } = await admin.rpc("kiosk_check_child_in", {
+     p_child_id: childId,
+     p_room_id: null,
+     p_guardian_id: session.guardian_id,
+     p_staff_id: null,
+   });
+ 
+   if (error || !visitId) {
+     return { ok: false, message: mapChildAttendanceError(error?.message) };
+   }
+@@ -432,28 +453,41 @@ export async function kioskCheckChildIn(sessionToken: string, childId: string):
+ // exception here that a guardian can act on -- it means this child was
+ // already checked out (double-tap, or checked out by someone else moments
+ // earlier), not a system error.
+ export async function kioskCheckChildOut(sessionToken: string, childId: string): Promise<KioskActionResult> {
+   const session = await resolveGuardianSession(sessionToken);
+   if (!session) return { ok: false, message: SESSION_EXPIRED };
+   if (!childId) return { ok: false, message: GENERIC_KIOSK_ERROR };
+ 
+   const admin = createAdminClient();
+ 
+-  const { data: link } = await admin
+-    .from("child_guardians")
+-    .select("child_id")
+-    .eq("child_id", childId)
+-    .eq("guardian_id", session.guardian_id)
+-    .maybeSingle();
++  // Same pair of independent checks as kioskCheckChildIn -- see that
++  // function's comment. Checkout has the same phantom-location failure mode
++  // as check-in (a Site A guardian closing a Site B child's visit by id) so
++  // it gets the identical location scoping, not just the link check.
++  const [{ data: link }, { data: childAtLocation }] = await Promise.all([
++    admin
++      .from("child_guardians")
++      .select("child_id")
++      .eq("child_id", childId)
++      .eq("guardian_id", session.guardian_id)
++      .maybeSingle(),
++    admin
++      .from("children")
++      .select("id")
++      .eq("id", childId)
++      .eq("location_id", session.location_id)
++      .eq("status", "active")
++      .maybeSingle(),
++  ]);
+ 
+-  if (!link) {
++  if (!link || !childAtLocation) {
+     return { ok: false, message: "That child isn't linked to your account." };
+   }
+ 
+   const { data: visitId, error } = await admin.rpc("kiosk_check_child_out", {
+     p_child_id: childId,
+     p_guardian_id: session.guardian_id,
+     p_staff_id: null,
+     p_override_reason: null,
+   });
+ 
+diff --git a/src/lib/kiosk/errors.test.ts b/src/lib/kiosk/errors.test.ts
+index 86086b6..3166822 100644
+--- a/src/lib/kiosk/errors.test.ts
++++ b/src/lib/kiosk/errors.test.ts
+@@ -8,26 +8,51 @@ describe("mapChildAttendanceError", () => {
+   it("turns no_open_visit into an actionable checkout message", () => {
+     expect(mapChildAttendanceError("no_open_visit", GENERIC)).toBe("This child isn't checked in.");
+   });
+ 
+   it("turns guardian_not_linked into an actionable message", () => {
+     expect(mapChildAttendanceError("guardian_not_linked", GENERIC)).toBe(
+       "That child isn't linked to your account.",
+     );
+   });
+ 
++  it("turns child not active into an enrollment message, not a director referral", () => {
++    expect(mapChildAttendanceError("child not active", GENERIC)).toBe("That child isn't enrolled here right now.");
++  });
++
+   it("falls back to the generic message for staff_not_in_tenant rather than leaking it", () => {
+     expect(mapChildAttendanceError("staff_not_in_tenant", GENERIC)).toBe(GENERIC);
+   });
+ 
+   it("falls back to the generic message for room_not_at_location rather than leaking it", () => {
+     expect(mapChildAttendanceError("room_not_at_location", GENERIC)).toBe(GENERIC);
+   });
+ 
+   it("falls back to the generic message for an unrecognized exception", () => {
+-    expect(mapChildAttendanceError("child not active", GENERIC)).toBe(GENERIC);
++    expect(mapChildAttendanceError("exactly one of guardian or staff must check the child in", GENERIC)).toBe(
++      GENERIC,
++    );
+   });
+ 
+   it("falls back to the generic message when there is no message at all", () => {
+     expect(mapChildAttendanceError(undefined, GENERIC)).toBe(GENERIC);
+   });
++
++  // PostgREST's actual on-the-wire shape for a bare `raise exception
++  // 'no_open_visit'` has never been confirmed against a live database (no
++  // `supabase` commands are available here). Matching by substring rather
++  // than exact equality means the mapper still works whether the message
++  // arrives bare or wrapped in something like a JSON error envelope --
++  // these two cases are what actually prove that, since a bare `===` check
++  // would silently degrade both to the generic message.
++  it("still maps no_open_visit when the message is wrapped in a decorated PostgREST envelope", () => {
++    expect(
++      mapChildAttendanceError('unexpected response: {"code":"P0001","message":"no_open_visit"}', GENERIC),
++    ).toBe("This child isn't checked in.");
++  });
++
++  it("still maps guardian_not_linked when the message is wrapped in a decorated PostgREST envelope", () => {
++    expect(
++      mapChildAttendanceError('unexpected response: {"code":"P0001","message":"guardian_not_linked"}', GENERIC),
++    ).toBe("That child isn't linked to your account.");
++  });
+ });
+diff --git a/src/lib/kiosk/errors.ts b/src/lib/kiosk/errors.ts
+index 349dd87..f2be96e 100644
+--- a/src/lib/kiosk/errors.ts
++++ b/src/lib/kiosk/errors.ts
+@@ -1,15 +1,30 @@
+ // Pure mapping from a raised RPC exception name to a message a person
+ // standing at the kiosk can act on. Split out from actions.ts (a "use
+ // server" module, which may only export async functions) so this logic is
+ // unit-testable without a database.
+ //
+-// Only the two exceptions a guardian/staff member can actually do something
+-// about get their own message. Everything else -- a claim mismatch the
++// Matching is substring (`includes`), not exact equality. Nobody has
++// confirmed PostgREST hands back `raise exception 'no_open_visit'` as
++// exactly that bare string rather than some decorated/prefixed form (e.g.
++// wrapped in a JSON blob with a "code" field), and this path can't be
++// exercised without a live database (see the task report). `includes` finds
++// the exception name whether the string arrives bare or dressed up; an
++// exact-match mapper would silently degrade every case to the generic
++// message the moment the real shape turns out to be decorated, and the
++// bare-string unit tests would never catch that.
++//
++// Exceptions get their own message when a guardian/staff member at the
++// kiosk can actually act on them. Everything else -- a claim mismatch the
+ // action's own pre-checks should already have caught, a room outside the
+ // child's location, or anything unrecognized -- falls back to the generic
+ // kiosk message rather than leaking a raw exception name to the screen.
+ export function mapChildAttendanceError(message: string | undefined, genericMessage: string): string {
+-  if (message === "no_open_visit") return "This child isn't checked in.";
+-  if (message === "guardian_not_linked") return "That child isn't linked to your account.";
++  if (!message) return genericMessage;
++  if (message.includes("no_open_visit")) return "This child isn't checked in.";
++  if (message.includes("guardian_not_linked")) return "That child isn't linked to your account.";
++  // Reachable in normal use -- a withdrawn child, or a tablet with a stale
++  // roster cached -- and it's an enrollment fact, not a system failure, so
++  // it shouldn't send a parent to the director.
++  if (message.includes("child not active")) return "That child isn't enrolled here right now.";
+   return genericMessage;
+ }

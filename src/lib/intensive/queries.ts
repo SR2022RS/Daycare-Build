@@ -18,6 +18,9 @@ function toRegistration(row: Row): Registration {
     currency: row.currency,
     status: row.status as PaymentStatus,
     checkoutSessionId: row.checkout_session_id,
+    // Which session the seat is for. Seats bought between sessions carry
+    // "next", so the admin list can tell them from September's attendees.
+    cohort: row.cohort,
     createdAt: row.created_at,
   };
 }
@@ -34,7 +37,7 @@ export async function listRegistrations(
   const { data } = await supabase
     .from("intensive_registrations")
     .select(
-      "id, tenant_id, first_name, last_name, email, amount_cents, currency, status, checkout_session_id, payment_intent_id, created_at, updated_at",
+      "id, tenant_id, first_name, last_name, email, amount_cents, currency, status, checkout_session_id, payment_intent_id, cohort, created_at, updated_at",
     )
     .eq("tenant_id", tenantId)
     .order("created_at", { ascending: false });
@@ -51,7 +54,9 @@ export async function listRegistrations(
  * only exists because the payment webhook wrote it, so a visitor who invents
  * a session_id gets nothing back. It never trusts the query string alone.
  */
-export async function getRegistrationBySession(sessionId: string): Promise<Registration | null> {
+export async function getRegistrationBySession(
+  sessionId: string,
+): Promise<Registration | null> {
   // Stripe session ids are cs_test_/cs_live_ + base62. Reject anything that
   // is not shaped like one before it reaches the database.
   if (!/^cs_[A-Za-z0-9_]{10,255}$/.test(sessionId)) return null;
@@ -60,7 +65,7 @@ export async function getRegistrationBySession(sessionId: string): Promise<Regis
   const { data } = await admin
     .from("intensive_registrations")
     .select(
-      "id, tenant_id, first_name, last_name, email, amount_cents, currency, status, checkout_session_id, payment_intent_id, created_at, updated_at",
+      "id, tenant_id, first_name, last_name, email, amount_cents, currency, status, checkout_session_id, payment_intent_id, cohort, created_at, updated_at",
     )
     .eq("checkout_session_id", sessionId)
     .maybeSingle();

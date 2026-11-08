@@ -6,8 +6,27 @@ import { getClientIp } from "@/lib/forms/access-log";
 import { FUNNEL_HOSTS, INTENSIVE } from "@/lib/intensive/config";
 import { isCheckoutRateLimited } from "@/lib/intensive/rate-limit";
 import { getStripe, isStripeConfigured } from "@/lib/stripe/client";
+import {
+  CHECKOUT_FAILED_TAG,
+  PAYMENT_STARTED_TAG,
+  isGhlConfigured,
+  upsertIntensiveContact,
+} from "@/lib/ghl/client";
+import {
+  hostedCheckoutUrl,
+  withBuyerPrefill,
+} from "@/lib/intensive/hosted-checkout";
 import { INTENSIVE_PRODUCT_MARKER } from "@/lib/stripe/routing";
-import { RegistrationSchema, type CheckoutResult } from "@/lib/intensive/definitions";
+import {
+  RegistrationSchema,
+  WaitlistSchema,
+  type CheckoutResult,
+  type WaitlistResult,
+} from "@/lib/intensive/definitions";
+import { WAITLIST_TAG } from "@/lib/ghl/client";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { sendEmail } from "@/lib/email/resend";
+import { waitlistHtml, waitlistSubject } from "@/lib/intensive/waitlist-email";
 
 /**
  * Public, unauthenticated entry point for the /intensive funnel.
@@ -22,7 +41,9 @@ import { RegistrationSchema, type CheckoutResult } from "@/lib/intensive/definit
  * rather than a dead button -- /intensive is a public page that has to keep
  * working before payments are switched on.
  */
-export async function startRegistration(formData: FormData): Promise<CheckoutResult> {
+export async function startRegistration(
+  formData: FormData,
+): Promise<CheckoutResult> {
   const parsed = RegistrationSchema.safeParse({
     firstName: formData.get("firstName"),
     lastName: formData.get("lastName"),
@@ -44,6 +65,40 @@ export async function startRegistration(formData: FormData): Promise<CheckoutRes
     };
   }
 
+  const { firstName, lastName, email } = parsed.data;
+
+  // Hosted payment page takes precedence over the Stripe API path whenever it
+  // is configured. It needs no secret key, which is exactly why it exists:
+  // the API path can only work if a live key is present, valid and permitted
+  // to create Checkout Sessions, and a key that failed any of those three
+  // returned 401 to every real buyer.
+  const hosted = hostedCheckoutUrl();
+  if (hosted) {
+    // Capture BEFORE redirecting. On this path we never see the payment
+    // ourselves at this stage, so if we don't record them here, someone who
+    // abandons at the card form leaves no trace anywhere.
+    if (isGhlConfigured()) {
+      const captured = await upsertIntensiveContact({
+        firstName,
+        lastName,
+        email,
+        tag: PAYMENT_STARTED_TAG,
+      });
+      if (!captured.ok) {
+        // Never block the sale on the CRM. Losing a contact record is
+        // recoverable from the processor's own records; losing the sale is not.
+        console.error(
+          `[intensive] pre-payment capture failed for ${email}: ${captured.error}`,
+        );
+      }
+    }
+
+    return {
+      status: "redirect",
+      url: withBuyerPrefill(hosted, { firstName, lastName, email }),
+    };
+  }
+
   const stripe = getStripe();
   const priceId = process.env.STRIPE_PRICE_ID;
 
@@ -54,7 +109,6 @@ export async function startRegistration(formData: FormData): Promise<CheckoutRes
     };
   }
 
-  const { firstName, lastName, email } = parsed.data;
   const origin = await resolveOrigin();
 
   try {
@@ -102,7 +156,8 @@ export async function startRegistration(formData: FormData): Promise<CheckoutRes
     if (!session.url) {
       return {
         status: "error",
-        message: "Stripe did not return a checkout URL. Nothing was charged — please try again.",
+        message:
+          "Stripe did not return a checkout URL. Nothing was charged — please try again.",
       };
     }
 
@@ -111,9 +166,29 @@ export async function startRegistration(formData: FormData): Promise<CheckoutRes
     // Never surface a raw Stripe error to a buyer: it can leak account and
     // integration detail, and it reads as a failure they caused.
     console.error("[intensive] checkout session creation failed", error);
+
+    // Capture the lead before giving up. Someone who filled in three fields
+    // and pressed pay is the warmest lead this funnel produces, and if
+    // checkout is broken they otherwise vanish with no trace. Tagged
+    // separately so Shikara can call them back and take payment by hand.
+    if (isGhlConfigured()) {
+      const rescued = await upsertIntensiveContact({
+        firstName,
+        lastName,
+        email,
+        tag: CHECKOUT_FAILED_TAG,
+      });
+      console.error(
+        `[intensive] checkout failed for ${email}; lead capture ${rescued.ok ? "ok" : "FAILED: " + rescued.error}`,
+      );
+    }
+
     return {
       status: "error",
-      message: `We couldn't open the payment page. No charge was made — try again, or email ${INTENSIVE.contactEmail}.`,
+      message:
+        `We couldn't open the payment page just now — nothing was charged. ` +
+        `We've saved your details and Shikara will reach out to get you your seat. ` +
+        `To sort it immediately, email ${INTENSIVE.contactEmail} or call ${INTENSIVE.phone}.`,
     };
   }
 }
@@ -131,7 +206,8 @@ export async function startRegistration(formData: FormData): Promise<CheckoutRes
  */
 async function resolveOrigin(): Promise<string> {
   const headerList = await headers();
-  const rawHost = headerList.get("x-forwarded-host") ?? headerList.get("host") ?? "";
+  const rawHost =
+    headerList.get("x-forwarded-host") ?? headerList.get("host") ?? "";
   const host = rawHost.split(":")[0];
 
   if (FUNNEL_HOSTS.includes(host)) {
@@ -142,13 +218,18 @@ async function resolveOrigin(): Promise<string> {
   const configured = process.env.NEXT_PUBLIC_SITE_URL;
   if (configured) return configured.replace(/\/$/, "");
 
-  const protocol = headerList.get("x-forwarded-proto") ?? (host === "localhost" ? "http" : "https");
+  const protocol =
+    headerList.get("x-forwarded-proto") ??
+    (host === "localhost" ? "http" : "https");
   return `${protocol}://${rawHost}`;
 }
 
 /** zod v4 keeps field errors under `issues`; this shapes them for the form. */
-function fieldErrors(error: { issues: { path: PropertyKey[]; message: string }[] }) {
-  const out: { firstName?: string[]; lastName?: string[]; email?: string[] } = {};
+function fieldErrors(error: {
+  issues: { path: PropertyKey[]; message: string }[];
+}) {
+  const out: { firstName?: string[]; lastName?: string[]; email?: string[] } =
+    {};
   for (const issue of error.issues) {
     const key = issue.path[0];
     if (key === "firstName" || key === "lastName" || key === "email") {
@@ -156,4 +237,100 @@ function fieldErrors(error: { issues: { path: PropertyKey[]; message: string }[]
     }
   }
   return out;
+}
+
+/**
+ * Waitlist signup, used between sessions.
+ *
+ * Nothing is sold here: the person is told the next date before it is
+ * announced, and that is the whole promise. Three sinks, in order of how much
+ * each one matters if the others fail:
+ *
+ *   1. our own table -- the list Shikara owns, readable in the portal;
+ *   2. GHL, tagged WAITLIST_TAG -- where she actually markets from;
+ *   3. a short confirmation email, so the person knows it worked.
+ *
+ * Only the first can fail the request. A CRM or mail outage must not tell
+ * somebody the form is broken when their name is already saved.
+ */
+export async function joinWaitlist(
+  formData: FormData,
+): Promise<WaitlistResult> {
+  const parsed = WaitlistSchema.safeParse({
+    firstName: formData.get("firstName"),
+    lastName: formData.get("lastName"),
+    email: formData.get("email"),
+  });
+
+  if (!parsed.success) {
+    return { status: "invalid", errors: fieldErrors(parsed.error) };
+  }
+
+  // Same public, unauthenticated exposure the checkout had, so the same
+  // throttle: without it this is an open write endpoint.
+  if (isCheckoutRateLimited(await getClientIp())) {
+    return {
+      status: "error",
+      message: `Too many attempts from this connection. Wait a few minutes and try again, or email ${INTENSIVE.contactEmail} and Shikara will add you herself.`,
+    };
+  }
+
+  const { firstName, lastName, email } = parsed.data;
+
+  const admin = createAdminClient();
+  const { error } = await admin.from("intensive_waitlist").insert({
+    tenant_id: INTENSIVE.tenantId,
+    first_name: firstName,
+    last_name: lastName,
+    email,
+  });
+
+  // 23505 is the unique index on (tenant_id, lower(email)) -- they are already
+  // on the list. Telling them so is friendlier than an error, and it must not
+  // trigger a second confirmation email.
+  const alreadyOn = error?.code === "23505";
+
+  if (error && !alreadyOn) {
+    console.error("[intensive] waitlist insert failed", error);
+    return {
+      status: "error",
+      message: `We couldn't save your details just now. Email ${INTENSIVE.contactEmail} and Shikara will add you to the list herself.`,
+    };
+  }
+
+  if (isGhlConfigured()) {
+    const synced = await upsertIntensiveContact({
+      firstName,
+      lastName,
+      email,
+      tag: WAITLIST_TAG,
+    });
+    if (!synced.ok) {
+      console.error(
+        `[intensive] waitlist CRM sync failed for ${email}: ${synced.error}`,
+      );
+    }
+  }
+
+  if (!alreadyOn) {
+    await sendEmail({
+      to: email,
+      from: INTENSIVE.fromEmail,
+      replyTo: INTENSIVE.contactEmail,
+      subject: waitlistSubject,
+      html: waitlistHtml(firstName),
+    }).catch((sendError) => {
+      console.error(
+        `[intensive] waitlist email failed for ${email}`,
+        sendError,
+      );
+    });
+  }
+
+  return {
+    status: "joined",
+    message: alreadyOn
+      ? "You're already on the list — you'll hear from Shikara as soon as the next date is set."
+      : "You're on the list. Shikara will email you the date before it goes public.",
+  };
 }

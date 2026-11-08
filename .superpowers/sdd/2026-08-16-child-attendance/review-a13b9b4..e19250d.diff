@@ -1,0 +1,365 @@
+# Review package: a13b9b4..e19250d
+
+## Commits
+e19250d Refuse guardian sessions in staff-only kiosk actions
+f69a8c1 Add child visit types and duration helpers
+
+## Files changed
+ src/lib/attendance/child-visits.test.ts | 35 ++++++++++++
+ src/lib/attendance/child-visits.ts      | 28 ++++++++++
+ src/lib/kiosk/actions.ts                |  8 ++-
+ src/types/database.types.ts             | 99 ++++++++++++++++++++++++++++++++-
+ 4 files changed, 166 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/src/lib/attendance/child-visits.test.ts b/src/lib/attendance/child-visits.test.ts
+new file mode 100644
+index 0000000..de14101
+--- /dev/null
++++ b/src/lib/attendance/child-visits.test.ts
+@@ -0,0 +1,35 @@
++import { describe, expect, it } from "vitest";
++
++import { hoursPresent, isStaleVisit } from "./child-visits";
++
++const at = (iso: string) => new Date(iso);
++
++describe("hoursPresent", () => {
++  it("measures a part-day visit", () => {
++    expect(hoursPresent("2026-08-17T08:00:00Z", at("2026-08-17T11:30:00Z"))).toBe(3.5);
++  });
++
++  it("rounds to one decimal", () => {
++    expect(hoursPresent("2026-08-17T08:00:00Z", at("2026-08-17T08:20:00Z"))).toBe(0.3);
++  });
++
++  it("never reports negative time for a clock skew", () => {
++    expect(hoursPresent("2026-08-17T09:00:00Z", at("2026-08-17T08:00:00Z"))).toBe(0);
++  });
++});
++
++describe("isStaleVisit", () => {
++  it("accepts a normal day", () => {
++    expect(isStaleVisit("2026-08-17T08:00:00Z", at("2026-08-17T17:00:00Z"))).toBe(false);
++  });
++
++  it("flags a visit still open after 12 hours", () => {
++    // Nobody's child is at daycare for 12 hours; this is a missed check-out,
++    // and it must be flagged rather than silently closed.
++    expect(isStaleVisit("2026-08-17T07:00:00Z", at("2026-08-17T19:30:00Z"))).toBe(true);
++  });
++
++  it("flags a visit left open overnight", () => {
++    expect(isStaleVisit("2026-08-17T08:00:00Z", at("2026-08-18T08:00:00Z"))).toBe(true);
++  });
++});
+diff --git a/src/lib/attendance/child-visits.ts b/src/lib/attendance/child-visits.ts
+new file mode 100644
+index 0000000..0f064f4
+--- /dev/null
++++ b/src/lib/attendance/child-visits.ts
+@@ -0,0 +1,28 @@
++/** A visit open longer than this is a missed check-out, not a long day. */
++const STALE_VISIT_HOURS = 12;
++
++export interface PresentChild {
++  visitId: string;
++  childId: string;
++  fullName: string;
++  roomId: string | null;
++  roomName: string;
++  checkedInAt: string;
++  hoursPresent: number;
++}
++
++export function hoursPresent(checkedInAt: string, now: Date = new Date()): number {
++  const ms = now.getTime() - new Date(checkedInAt).getTime();
++  // Clock skew between the kiosk and the server shouldn't render as negative
++  // time on a roster a staff member is reading.
++  return Math.max(0, Math.round((ms / 3_600_000) * 10) / 10);
++}
++
++/**
++ * A visit still open after half a day almost certainly means someone forgot to
++ * check the child out. It is flagged rather than auto-closed: inventing a
++ * departure time would corrupt the very record an audit relies on.
++ */
++export function isStaleVisit(checkedInAt: string, now: Date = new Date()): boolean {
++  return hoursPresent(checkedInAt, now) >= STALE_VISIT_HOURS;
++}
+diff --git a/src/lib/kiosk/actions.ts b/src/lib/kiosk/actions.ts
+index bb80267..55ebe8f 100644
+--- a/src/lib/kiosk/actions.ts
++++ b/src/lib/kiosk/actions.ts
+@@ -103,22 +103,26 @@ export async function kioskIdentify(deviceToken: string, pin: string): Promise<K
+ }
+ 
+ async function resolveSession(sessionToken: string) {
+   const admin = createAdminClient();
+   const { data } = await admin
+     .from("kiosk_sessions")
+     .select("id, device_id, profile_id, tenant_id, location_id, expires_at")
+     .eq("id", sessionToken)
+     .maybeSingle();
+ 
+-  if (!data || new Date(data.expires_at) < new Date()) return null;
+-  return data;
++  // kiosk_sessions.profile_id is nullable now that guardian sessions share
++  // the table (see kiosk_sessions_actor). Every action below is staff-only
++  // (clock in/out, breaks, room transfers, incident filing), so a guardian
++  // session -- profile_id null -- is not a valid session here.
++  if (!data || new Date(data.expires_at) < new Date() || !data.profile_id) return null;
++  return { ...data, profile_id: data.profile_id };
+ }
+ 
+ export async function kioskClockIn(sessionToken: string): Promise<KioskActionResult> {
+   const session = await resolveSession(sessionToken);
+   if (!session) return { ok: false, message: SESSION_EXPIRED };
+ 
+   const admin = createAdminClient();
+   await admin.from("attendance").upsert(
+     {
+       tenant_id: session.tenant_id,
+diff --git a/src/types/database.types.ts b/src/types/database.types.ts
+index 986ca2f..97e4d6d 100644
+--- a/src/types/database.types.ts
++++ b/src/types/database.types.ts
+@@ -588,20 +588,21 @@ export interface Database {
+           funding_type: FundingType;
+           schedule: ChildSchedule;
+           weekly_rate: number | null;
+           subsidy_weekly_amount: number | null;
+           rate_note: string | null;
+           cadence: BillingCadence;
+           start_date: string | null;
+           room_id: string | null;
+           waitlisted_at: string | null;
+           desired_start_date: string | null;
++          pickup_code_word: string | null;
+           created_at: string;
+           updated_at: string;
+         };
+         Insert: {
+           id?: string;
+           tenant_id: string;
+           location_id: string;
+           full_name: string;
+           dob: string;
+           classroom?: string | null;
+@@ -609,20 +610,21 @@ export interface Database {
+           funding_type?: FundingType;
+           schedule?: ChildSchedule;
+           weekly_rate?: number | null;
+           subsidy_weekly_amount?: number | null;
+           rate_note?: string | null;
+           cadence?: BillingCadence;
+           start_date?: string | null;
+           room_id?: string | null;
+           waitlisted_at?: string | null;
+           desired_start_date?: string | null;
++          pickup_code_word?: string | null;
+           created_at?: string;
+           updated_at?: string;
+         };
+         Update: Partial<Database["public"]["Tables"]["children"]["Insert"]>;
+         Relationships: [
+           {
+             foreignKeyName: "children_location_id_fkey";
+             columns: ["location_id"];
+             isOneToOne: false;
+             referencedRelation: "locations";
+@@ -1107,78 +1109,155 @@ export interface Database {
+       kiosk_devices: {
+         Row: {
+           id: string;
+           tenant_id: string;
+           location_id: string;
+           name: string;
+           device_token: string;
+           is_active: boolean;
+           failed_attempts: number;
+           locked_until: string | null;
++          guardian_failed_attempts: number;
++          guardian_locked_until: string | null;
+           last_seen_at: string | null;
+           created_at: string;
+         };
+         Insert: {
+           id?: string;
+           tenant_id: string;
+           location_id: string;
+           name: string;
+           device_token?: string;
+           is_active?: boolean;
+           failed_attempts?: number;
+           locked_until?: string | null;
++          guardian_failed_attempts?: number;
++          guardian_locked_until?: string | null;
+           last_seen_at?: string | null;
+           created_at?: string;
+         };
+         Update: Partial<Database["public"]["Tables"]["kiosk_devices"]["Insert"]>;
+         Relationships: [];
+       };
+       kiosk_sessions: {
+         Row: {
+           id: string;
+           device_id: string;
+-          profile_id: string;
++          profile_id: string | null;
++          guardian_id: string | null;
+           tenant_id: string;
+           location_id: string;
+           expires_at: string;
+           created_at: string;
+         };
+         Insert: {
+           id?: string;
+           device_id: string;
+-          profile_id: string;
++          profile_id?: string | null;
++          guardian_id?: string | null;
+           tenant_id: string;
+           location_id: string;
+           expires_at?: string;
+           created_at?: string;
+         };
+         Update: Partial<Database["public"]["Tables"]["kiosk_sessions"]["Insert"]>;
+         Relationships: [];
+       };
+       kiosk_pin_attempts: {
+         Row: {
+           id: string;
+           device_id: string;
+           profile_id: string | null;
++          guardian_id: string | null;
+           outcome: KioskPinOutcome;
+           created_at: string;
+         };
+         Insert: {
+           id?: string;
+           device_id: string;
+           profile_id?: string | null;
++          guardian_id?: string | null;
+           outcome: KioskPinOutcome;
+           created_at?: string;
+         };
+         Update: Partial<Database["public"]["Tables"]["kiosk_pin_attempts"]["Insert"]>;
+         Relationships: [];
+       };
++      guardian_pins: {
++        Row: {
++          guardian_id: string;
++          tenant_id: string;
++          pin_hash: string;
++          failed_attempts: number;
++          locked_until: string | null;
++          updated_at: string;
++        };
++        Insert: {
++          guardian_id: string;
++          tenant_id: string;
++          pin_hash: string;
++          failed_attempts?: number;
++          locked_until?: string | null;
++          updated_at?: string;
++        };
++        Update: Partial<Database["public"]["Tables"]["guardian_pins"]["Insert"]>;
++        Relationships: [];
++      };
++      child_attendance: {
++        Row: {
++          id: string;
++          tenant_id: string;
++          location_id: string;
++          child_id: string;
++          room_id: string | null;
++          checked_in_at: string;
++          checked_out_at: string | null;
++          in_by_guardian_id: string | null;
++          in_by_staff_id: string | null;
++          out_by_guardian_id: string | null;
++          out_by_staff_id: string | null;
++          out_override_reason: string | null;
++          created_at: string;
++        };
++        Insert: {
++          id?: string;
++          tenant_id: string;
++          location_id: string;
++          child_id: string;
++          room_id?: string | null;
++          checked_in_at?: string;
++          checked_out_at?: string | null;
++          in_by_guardian_id?: string | null;
++          in_by_staff_id?: string | null;
++          out_by_guardian_id?: string | null;
++          out_by_staff_id?: string | null;
++          out_override_reason?: string | null;
++          created_at?: string;
++        };
++        Update: Partial<Database["public"]["Tables"]["child_attendance"]["Insert"]>;
++        Relationships: [
++          {
++            foreignKeyName: "child_attendance_child_id_fkey";
++            columns: ["child_id"];
++            isOneToOne: false;
++            referencedRelation: "children";
++            referencedColumns: ["id"];
++          },
++          {
++            foreignKeyName: "child_attendance_room_id_fkey";
++            columns: ["room_id"];
++            isOneToOne: false;
++            referencedRelation: "rooms";
++            referencedColumns: ["id"];
++          },
++        ];
++      };
+       attendance_breaks: {
+         Row: {
+           id: string;
+           attendance_id: string;
+           started_at: string;
+           ended_at: string | null;
+         };
+         Insert: {
+           id?: string;
+           attendance_id: string;
+@@ -1376,20 +1455,36 @@ export interface Database {
+         Returns: undefined;
+       };
+       kiosk_identify_pin: {
+         Args: { p_device_token: string; p_pin: string };
+         Returns: string | null;
+       };
+       generate_recurring_charges: {
+         Args: { p_tenant_id: string; p_on: string };
+         Returns: number;
+       };
++      admin_set_guardian_pin: {
++        Args: { p_guardian_id: string; p_pin: string };
++        Returns: undefined;
++      };
++      kiosk_identify_guardian_pin: {
++        Args: { p_device_token: string; p_pin: string };
++        Returns: string | null;
++      };
++      kiosk_check_child_in: {
++        Args: { p_child_id: string; p_room_id: string | null; p_guardian_id: string | null; p_staff_id: string | null };
++        Returns: string;
++      };
++      kiosk_check_child_out: {
++        Args: { p_child_id: string; p_guardian_id: string | null; p_staff_id: string | null; p_override_reason: string | null };
++        Returns: string;
++      };
+     };
+     Enums: {
+       app_role: AppRole;
+       credential_type: CredentialType;
+       child_status: ChildStatus;
+       funding_type: FundingType;
+       child_schedule: ChildSchedule;
+       billing_cadence: BillingCadence;
+       incident_status: IncidentStatus;
+       sop_audience: SopAudience;

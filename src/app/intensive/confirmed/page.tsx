@@ -25,14 +25,21 @@ function money(cents: number, currency: string) {
 export default async function IntensiveConfirmedPage({
   searchParams,
 }: {
-  searchParams: Promise<{ session_id?: string }>;
+  searchParams: Promise<{ session_id?: string; order?: string }>;
 }) {
-  const { session_id: sessionId } = await searchParams;
+  const { session_id: sessionId, order } = await searchParams;
 
-  // Verified server-side against our own record, which only the payment
-  // webhook can write. The query string on its own proves nothing -- someone
-  // can bookmark, replay or invent this URL.
-  const registration = sessionId ? await getRegistrationBySession(sessionId) : null;
+  // Two identifiers because there are two payment paths. Stripe returns its
+  // Checkout Session id; a GoHighLevel order form returns a GHL order id,
+  // which the webhook stores prefixed so the two can never collide.
+  //
+  // Both are safe to accept from the URL for the same reason: they are long
+  // unguessable ids, so knowing one is itself weak evidence you are the buyer.
+  // Neither is trusted as proof of PAYMENT though -- that is read below from
+  // our own row, which only the payment webhook can write. The query string
+  // says "look this up", never "this was paid".
+  const lookupKey = sessionId ?? (order ? `ghl_${order}` : null);
+  const registration = lookupKey ? await getRegistrationBySession(lookupKey) : null;
   const confirmed = registration?.status === "paid";
 
   if (!confirmed) {

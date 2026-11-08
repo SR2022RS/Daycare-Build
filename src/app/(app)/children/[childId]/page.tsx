@@ -5,6 +5,9 @@ import { Send, Star } from "lucide-react";
 import { verifySession } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
 import { addGuardian, removeGuardian, setGuardianPayer, updateChild } from "@/lib/children/actions";
+import { ChildContacts, type ChildContact } from "@/components/children/child-contacts";
+import { StaffChildForm } from "@/components/children/staff-child-form";
+import { StaffGuardians, type GuardianRow } from "@/components/children/staff-guardian-form";
 import { CADENCE_LABELS, FUNDING_TYPE_LABELS, SCHEDULE_LABELS } from "@/lib/children/labels";
 import { ResetGuardianPinForm } from "@/components/children/reset-guardian-pin-form";
 import { createFormSend } from "@/lib/forms/actions";
@@ -25,7 +28,7 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
     supabase
       .from("children")
       .select(
-        "id, full_name, dob, classroom, status, funding_type, schedule, weekly_rate, subsidy_weekly_amount, rate_note, cadence, start_date, location_id, room_id, waitlisted_at, desired_start_date",
+        "id, full_name, dob, classroom, status, funding_type, schedule, weekly_rate, subsidy_weekly_amount, rate_note, cadence, start_date, location_id, room_id, waitlisted_at, desired_start_date, pickup_code_word",
       )
       .eq("id", childId)
       .eq("tenant_id", session.profile.tenantId)
@@ -51,6 +54,22 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
   if (!child) {
     notFound();
   }
+
+  const { data: contactRows } = await supabase
+    .from("child_contacts")
+    .select("id, kind, full_name, relationship, phone, note")
+    .eq("child_id", childId)
+    .eq("tenant_id", session.profile.tenantId)
+    .order("created_at");
+
+  const contacts: ChildContact[] = (contactRows ?? []).map((row) => ({
+    id: row.id,
+    kind: row.kind,
+    fullName: row.full_name,
+    relationship: row.relationship,
+    phone: row.phone,
+    note: row.note,
+  }));
 
   const { data: sendRows } = await supabase
     .from("form_sends")
@@ -269,6 +288,12 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
               />
             </label>
             <input
+              name="pickupCodeWord"
+              defaultValue={child.pickup_code_word ?? ""}
+              placeholder="Pickup code word"
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-[var(--brand-accent)] focus:outline-none"
+            />
+            <input
               name="rateNote"
               defaultValue={child.rate_note ?? ""}
               placeholder="Rate note (optional — discounts, sibling rate, etc.)"
@@ -371,6 +396,8 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
         </section>
       </div>
 
+      <ChildContacts childId={child.id} contacts={contacts} />
+
       <section className="mt-4 overflow-hidden rounded-xl border border-gray-200 bg-white">
         <div className="border-b border-gray-100 px-4.5 py-3.5">
           <h2 className="font-serif text-[14.5px] font-semibold text-gray-900">Send forms to parent</h2>
@@ -460,48 +487,133 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
 // 1 / Controller Ruling K). The view carries the roster columns staff need
 // (full_name, classroom, location_name) alongside balance_status, scoped to
 // the caller's tenant by the view's own definition.
+/**
+ * The staff view of a child -- now a working entry screen rather than a
+ * read-only card.
+ *
+ * Reads `child_people` and `child_guardian_people`, the definer views that
+ * carry no rate columns, because `children` and `guardians` stay closed to
+ * staff by RLS. The balance badge still comes from `child_balance_status`,
+ * which reports *that* a family is behind without saying by how much.
+ */
 async function StaffChildCard({ childId, tenantId }: { childId: string; tenantId: string }) {
   const supabase = await createClient();
 
-  const { data: child } = await supabase
-    .from("child_balance_status")
-    .select("full_name, classroom, location_name, balance_status")
-    .eq("child_id", childId)
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
+  const [{ data: child }, { data: status }, { data: guardianRows }, { data: contactRows }, { data: locations }, { data: rooms }] =
+    await Promise.all([
+      supabase
+        .from("child_people")
+        .select(
+          "child_id, full_name, dob, classroom, status, schedule, funding_type, start_date, desired_start_date, pickup_code_word, location_id, room_id, location_name",
+        )
+        .eq("child_id", childId)
+        .eq("tenant_id", tenantId)
+        .maybeSingle(),
+      supabase
+        .from("child_balance_status")
+        .select("balance_status")
+        .eq("child_id", childId)
+        .eq("tenant_id", tenantId)
+        .maybeSingle(),
+      supabase
+        .from("child_guardian_people")
+        .select("guardian_id, full_name, phone, email, relationship, is_payer")
+        .eq("child_id", childId)
+        .eq("tenant_id", tenantId),
+      supabase
+        .from("child_contacts")
+        .select("id, kind, full_name, relationship, phone, note")
+        .eq("child_id", childId)
+        .eq("tenant_id", tenantId)
+        .order("created_at"),
+      supabase
+        .from("locations")
+        .select("id, name")
+        .eq("tenant_id", tenantId)
+        .eq("is_active", true)
+        .order("name"),
+      supabase
+        .from("rooms")
+        .select("id, name")
+        .eq("tenant_id", tenantId)
+        .eq("is_active", true)
+        .order("name"),
+    ]);
 
   if (!child) {
     notFound();
   }
 
-  const overdue = child.balance_status === "overdue";
+  const overdue = status?.balance_status === "overdue";
+
+  const guardians: GuardianRow[] = (guardianRows ?? []).map((g) => ({
+    guardianId: g.guardian_id,
+    fullName: g.full_name,
+    phone: g.phone,
+    email: g.email,
+    relationship: g.relationship,
+    isPayer: g.is_payer,
+  }));
+
+  const contacts: ChildContact[] = (contactRows ?? []).map((row) => ({
+    id: row.id,
+    kind: row.kind,
+    fullName: row.full_name,
+    relationship: row.relationship,
+    phone: row.phone,
+    note: row.note,
+  }));
 
   return (
-    <div className="max-w-[560px]">
+    <div className="max-w-[760px]">
       <Link
         href="/children"
         className="mb-3.5 inline-block text-[12.5px] font-semibold text-gray-500 hover:text-[var(--brand-primary)]"
       >
         &larr; Children
       </Link>
+
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-        <div className="border-b border-gray-100 px-4.5 py-3.5">
-          <h1 className="font-serif text-[14.5px] font-semibold text-gray-900">{child.full_name}</h1>
-          <div className="mt-0.5 text-[11.5px] text-gray-400">
-            {child.classroom || "No classroom"} &middot; {child.location_name ?? "—"}
+        <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4.5 py-3.5">
+          <div className="min-w-0">
+            <h1 className="font-serif text-[14.5px] font-semibold text-gray-900">{child.full_name}</h1>
+            <div className="mt-0.5 text-[11.5px] text-gray-400">
+              {child.classroom || "No classroom"} &middot; {child.location_name ?? "\u2014"}
+            </div>
           </div>
-        </div>
-        <div className="flex items-center justify-between px-4.5 py-3.5">
-          <span className="text-[13px] text-gray-600">Account status</span>
           <span
-            className={`rounded-full px-2.5 py-1 text-[10.5px] font-bold tracking-[.07em] uppercase ${
+            className={`shrink-0 rounded-full px-2.5 py-1 text-[10.5px] font-bold tracking-[.07em] uppercase ${
               overdue ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"
             }`}
           >
             {overdue ? "Overdue" : "Current"}
           </span>
         </div>
+
+        <StaffChildForm
+          locations={locations ?? []}
+          rooms={rooms ?? []}
+          child={{
+            childId: child.child_id,
+            fullName: child.full_name,
+            dob: child.dob,
+            locationId: child.location_id,
+            roomId: child.room_id,
+            classroom: child.classroom,
+            status: child.status,
+            schedule: child.schedule,
+            fundingType: child.funding_type,
+            startDate: child.start_date,
+            desiredStartDate: child.desired_start_date,
+            pickupCodeWord: child.pickup_code_word,
+          }}
+          onDoneLabel="Save changes"
+        />
       </div>
+
+      <StaffGuardians childId={child.child_id} guardians={guardians} />
+
+      <ChildContacts childId={child.child_id} contacts={contacts} />
     </div>
   );
 }

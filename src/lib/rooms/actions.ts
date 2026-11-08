@@ -85,3 +85,90 @@ export async function enrollFromWaitlist(
   revalidatePath(`/children/${childId}`);
   revalidatePath("/dashboard");
 }
+
+/**
+ * Creating and editing rooms.
+ *
+ * There was no way to make a room at all before this -- not in the UI, not in
+ * an action -- which is why the tenant has five campuses and zero classrooms.
+ * Without rooms the portal cannot tell anybody a room is full, so "can I take
+ * another two-year-old?" stays a question you answer from memory.
+ *
+ * Open to staff: naming the rooms you work in every day is not a financial
+ * decision, and making a director do it is how it never gets done.
+ */
+export type RoomActionState = { message?: string; ok?: boolean } | undefined;
+
+const ROOM_ROLES = ["director", "platform_admin", "staff"] as const;
+
+export async function saveRoom(
+  prevState: RoomActionState,
+  formData: FormData,
+): Promise<RoomActionState> {
+  const session = await requireRole([...ROOM_ROLES]);
+
+  const roomId = text(formData, "roomId");
+  const name = text(formData, "name");
+  const locationId = text(formData, "locationId");
+
+  if (!name) return { message: "Give the room a name." };
+  if (!locationId) return { message: "Choose which campus this room is at." };
+
+  const capacity = optionalInt(formData, "capacity");
+  if (capacity === "invalid") return { message: "Capacity must be a whole number." };
+
+  const minAge = optionalInt(formData, "minAgeMonths");
+  const maxAge = optionalInt(formData, "maxAgeMonths");
+  if (minAge === "invalid" || maxAge === "invalid") {
+    return { message: "Ages must be whole numbers of months." };
+  }
+  // Caught here rather than at the database, because "18 to 6 months" is a
+  // typo a person can fix, not an error they should meet as a 500.
+  if (minAge !== null && maxAge !== null && minAge > maxAge) {
+    return { message: "The youngest age can't be older than the oldest age." };
+  }
+
+  const supabase = await createClient();
+
+  const values = {
+    location_id: locationId,
+    name,
+    capacity,
+    min_age_months: minAge,
+    max_age_months: maxAge,
+    is_active: formData.get("isActive") !== "off",
+  };
+
+  if (roomId) {
+    const { error } = await supabase
+      .from("rooms")
+      .update(values)
+      .eq("id", roomId)
+      .eq("tenant_id", session.profile.tenantId);
+    if (error) return { message: "That room could not be saved. Please try again." };
+  } else {
+    const { error } = await supabase
+      .from("rooms")
+      .insert({ ...values, tenant_id: session.profile.tenantId });
+    if (error) return { message: "That room could not be created. Please try again." };
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/children");
+  revalidatePath("/attendance/children");
+  return { ok: true, message: roomId ? "Room saved." : `${name} added.` };
+}
+
+function text(formData: FormData, key: string): string | null {
+  const value = formData.get(key);
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** null when blank, "invalid" when present but not a whole number. */
+function optionalInt(formData: FormData, key: string): number | null | "invalid" {
+  const raw = text(formData, key);
+  if (raw === null) return null;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0) return "invalid";
+  return parsed;
+}

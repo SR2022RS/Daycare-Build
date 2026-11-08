@@ -1,4 +1,9 @@
-import { INTENSIVE, eventStartUTC, isInPerson } from "@/lib/intensive/config";
+import {
+  INTENSIVE,
+  eventStartUTC,
+  isInPerson,
+  isWaitlist,
+} from "@/lib/intensive/config";
 
 /**
  * Reminder schedule for the intensive.
@@ -138,9 +143,42 @@ export interface ConfirmationDetails {
   currency: string;
 }
 
-export const confirmationSubject = `You're in — ${INTENSIVE.name}, ${INTENSIVE.dateLabel}`;
+export const confirmationSubject = isWaitlist
+  ? `You're in — your seat at ${INTENSIVE.name}`
+  : `You're in — ${INTENSIVE.name}, ${INTENSIVE.dateLabel}`;
 
-export function confirmationHtml({ firstName, amountCents, currency }: ConfirmationDetails): string {
+export function confirmationHtml({
+  firstName,
+  amountCents,
+  currency,
+}: ConfirmationDetails): string {
+  const paid = `$${(amountCents / 100).toFixed(2)} ${String(currency).toUpperCase()}`;
+
+  // Paid after the last session, before the next date exists. Promising a date
+  // that has already passed -- with a calendar invite for it -- is worse than
+  // sending nothing, so this says plainly what they have bought and what
+  // happens next. No .ics either: there is no date to put in it.
+  if (isWaitlist) {
+    return `
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;max-width:560px;color:#0F172A;">
+        <h1 style="font-size:22px;margin:0 0 12px;">${firstName}, you're in.</h1>
+        <p style="line-height:1.6;color:#334155;margin:0 0 16px;">
+          Your seat at <strong>${INTENSIVE.name}</strong> is reserved for the next session.
+        </p>
+        <p><strong>Date:</strong> to be announced</p>
+        <p><strong>Paid:</strong> ${paid} · one payment</p>
+        <p style="line-height:1.6;color:#334155;">
+          The next date is being scheduled. You are paid and on the list, so you will get the
+          date, the venue and the running order by email before any of it goes public —
+          there is nothing else for you to do.
+        </p>
+        <p style="color:#64748B;font-size:13px;line-height:1.6;">
+          Questions? Reply to this email or call ${INTENSIVE.phone}.
+        </p>
+      </div>
+    `;
+  }
+
   const whereBlock = isInPerson
     ? `<p><strong>Where:</strong> ${INTENSIVE.venue.name}<br />${INTENSIVE.venue.address}</p>`
     : INTENSIVE.zoom.link

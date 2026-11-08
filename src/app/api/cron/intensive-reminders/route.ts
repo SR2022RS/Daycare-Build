@@ -1,7 +1,15 @@
 import { INTENSIVE, buildIcs } from "@/lib/intensive/config";
-import { REMINDER_STAGES, daysUntilEvent, reminderHtml, stageDueToday } from "@/lib/intensive/reminders";
+import {
+  REMINDER_STAGES,
+  daysUntilEvent,
+  reminderHtml,
+  stageDueToday,
+} from "@/lib/intensive/reminders";
 import { sendEmail } from "@/lib/email/resend";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { runIntensiveHealthCheck } from "@/lib/intensive/health";
+import { alertCopy } from "@/lib/intensive/health-alert";
+import { retryUntil } from "@/lib/retry";
 
 /**
  * Daily reminder run for the intensive.
@@ -32,12 +40,52 @@ export async function GET(request: Request) {
     return new Response("Unauthorized", { status: 401 });
   }
 
+  // Health first, every run, regardless of whether a reminder is due. Most
+  // days this cron has nothing to send, so without this the daily run proves
+  // nothing and a broken buy path stays invisible until a customer finds it
+  // -- which is exactly how the Stripe key outage was discovered.
+  const health = await runIntensiveHealthCheck();
+  if (!health.healthy) {
+    const broken = health.checks.filter((c) => !c.ok);
+    console.error(
+      `[intensive-reminders] BUY PATH UNHEALTHY: ${broken.map((c) => `${c.name}: ${c.detail}`).join(" | ")}`,
+    );
+    if (!INTENSIVE.alertEmail) {
+      // Logged above. Not mailing anyone beats mailing the business owner a
+      // fault report she cannot act on -- see INTENSIVE.alertEmail.
+      console.error(
+        "[intensive-reminders] INTENSIVE_ALERT_EMAIL unset; alert not sent",
+      );
+    } else {
+      // Worded by what actually broke: a database hiccup must not claim
+      // customers cannot buy -- on the hosted path they pay through GHL.
+      const copy = alertCopy(INTENSIVE.name, broken);
+      await sendEmail({
+        to: INTENSIVE.alertEmail,
+        from: INTENSIVE.alertFromEmail,
+        subject: copy.subject,
+        html:
+          `<div style="font-family:system-ui,sans-serif;max-width:560px">` +
+          `<h2 style="color:#B42318;margin:0 0 10px;">${copy.headline}</h2>` +
+          `<p style="color:#334155;line-height:1.6;">${copy.lead}</p>` +
+          `<ul style="color:#334155;line-height:1.7;">` +
+          broken
+            .map((c) => `<li><strong>${c.name}</strong>: ${c.detail}</li>`)
+            .join("") +
+          `</ul></div>`,
+      }).catch(() => {
+        /* An alert that cannot send must not take the reminder run down with it. */
+      });
+    }
+  }
+
   const remaining = daysUntilEvent();
   const stage = stageDueToday();
 
   if (!stage) {
     return Response.json({
       ran: true,
+      healthy: health.healthy,
       daysUntilEvent: remaining,
       stage: null,
       note: `No reminder scheduled at ${remaining} days out. Stages: ${REMINDER_STAGES.map((s) => `${s.id}@${s.daysBefore}d`).join(", ")}`,
@@ -46,15 +94,36 @@ export async function GET(request: Request) {
 
   const admin = createAdminClient();
 
-  const { data: paid, error: readError } = await admin
-    .from("intensive_registrations")
-    .select("id, first_name, email")
-    .eq("tenant_id", INTENSIVE.tenantId)
-    .eq("status", "paid");
+  // Retried: on Sep 12 this read hit a one-off gateway timeout at 9 AM and
+  // the whole run stopped, so the only paid buyer missed her day-of reminder
+  // until it was re-run by hand. The claim table below keeps a retry from
+  // ever sending twice.
+  const { result: paidRead, attempts } = await retryUntil(
+    async () =>
+      await admin
+        .from("intensive_registrations")
+        .select("id, first_name, email")
+        .eq("tenant_id", INTENSIVE.tenantId)
+        .eq("status", "paid")
+        // Only this session's buyers. Without it, announcing the next date
+        // would email everyone who attended September about a class they have
+        // already taken.
+        .eq("cohort", INTENSIVE.cohort),
+    (response) => Boolean(response.error),
+  );
+  const { data: paid, error: readError } = paidRead;
 
   if (readError) {
-    console.error("[intensive-reminders] read failed", readError);
+    console.error(
+      `[intensive-reminders] read failed after ${attempts} attempts`,
+      readError,
+    );
     return new Response("Read failed", { status: 500 });
+  }
+  if (attempts > 1) {
+    console.log(
+      `[intensive-reminders] paid list read recovered on attempt ${attempts}`,
+    );
   }
 
   const { data: alreadySent } = await admin
@@ -106,14 +175,19 @@ export async function GET(request: Request) {
         .delete()
         .eq("registration_id", registration.id)
         .eq("stage", stage.id);
-      console.error(`[intensive-reminders] send failed for ${registration.email}: ${result.error}`);
+      console.error(
+        `[intensive-reminders] send failed for ${registration.email}: ${result.error}`,
+      );
     }
   }
 
-  console.log(`[intensive-reminders] stage=${stage.id} sent=${sent} failed=${failed.length}`);
+  console.log(
+    `[intensive-reminders] stage=${stage.id} sent=${sent} failed=${failed.length}`,
+  );
 
   return Response.json({
     ran: true,
+    healthy: health.healthy,
     daysUntilEvent: remaining,
     stage: stage.id,
     eligible: pending.length,

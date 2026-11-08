@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { FUNNEL_HOSTS } from "@/lib/intensive/config";
+import { getSiteUrl } from "@/lib/site-url";
 
 // Auth pages: unauthenticated visitors get in, but a logged-in user gets
 // bounced to /dashboard -- there's no reason to be on /login once signed in.
@@ -36,12 +37,19 @@ const PUBLIC_PATHS = [
   // never be recorded. Authorized by webhook signature, not by session --
   // see app/api/stripe/webhook/route.ts.
   "/api/stripe/webhook",
+  // GoHighLevel posts order events here server-to-server with no cookie, same
+  // as Stripe. Authorized by the shared secret it checks itself, because GHL
+  // does not sign workflow webhooks -- see app/api/ghl/order-webhook/route.ts.
+  "/api/ghl/order-webhook",
   // Vercel's cron runner calls this server-to-server with no cookie, so the
   // proxy must not bounce it to /login. Authorized by the CRON_SECRET bearer
   // token it checks itself -- see app/api/cron/intensive-reminders/route.ts.
   // Exact path, not a prefix: "/api/cron/" would silently make every future
   // cron route public at this layer, whether or not it checks a secret.
   "/api/cron/intensive-reminders",
+  // Buy-path health check. Reachable without a session so an external uptime
+  // monitor can poll it; it authorizes itself against CRON_SECRET.
+  "/api/health/intensive",
 ];
 
 // Carved back out of the public tree: /intensive/registrations is the
@@ -53,13 +61,53 @@ const PROTECTED_EXCEPTIONS = ["/intensive/registrations"];
 // Defined in lib/intensive/config.ts so the checkout can share the list --
 // it doubles as the allowlist for Stripe return URLs.
 
+/**
+ * Sends a portal path off a funnel host to wherever the portal actually lives.
+ *
+ * Returns null when there is nowhere else to send it -- if the configured site
+ * URL is unparseable, or resolves back to this same host, redirecting would
+ * only produce a loop, and serving the page is better than a broken domain.
+ */
+function portalRedirect(request: NextRequest, host: string) {
+  const { pathname, search } = request.nextUrl;
+  if (pathname === "/intensive" || pathname.startsWith("/intensive/")) return null;
+  if (pathname.startsWith("/api/")) return null;
+
+  let portal: URL;
+  try {
+    portal = new URL(getSiteUrl());
+  } catch {
+    return null;
+  }
+  if (portal.hostname === host) return null;
+
+  return NextResponse.redirect(new URL(`${pathname}${search}`, portal.origin), 308);
+}
+
 export async function updateSession(request: NextRequest) {
   // Handled before the Supabase client is built: /intensive is a public,
   // statically-rendered marketing page, so a visitor landing on the funnel
   // domain should not pay for a session lookup to see it.
   const host = request.headers.get("host")?.split(":")[0] ?? "";
-  if (FUNNEL_HOSTS.includes(host) && request.nextUrl.pathname === "/") {
-    return NextResponse.rewrite(new URL("/intensive", request.url));
+
+  if (FUNNEL_HOSTS.includes(host)) {
+    if (request.nextUrl.pathname === "/") {
+      return NextResponse.rewrite(new URL("/intensive", request.url));
+    }
+
+    // A funnel host serves the funnel and nothing else.
+    //
+    // The portal and the sales page are one deployment, so before this every
+    // funnel domain also answered /login, /children and /billing -- the staff
+    // portal sitting on the domain being advertised to buy a $300 class.
+    // Nothing leaked (those pages still demand a session), but a sales domain
+    // should not offer strangers an employee login form.
+    //
+    // /api is exempt because the payment webhook, the GHL webhook, the cron
+    // and the health check are configured against whichever host they were
+    // registered with, and redirecting a POST would silently break payments.
+    const redirected = portalRedirect(request, host);
+    if (redirected) return redirected;
   }
 
   let supabaseResponse = NextResponse.next({ request });

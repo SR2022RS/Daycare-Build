@@ -5,7 +5,15 @@
 // output -- @supabase/postgrest-js's generics require it or Row types resolve to `never`.
 
 export type AppRole = "platform_admin" | "director" | "staff";
-export type TrainingProgressStatus = "not_started" | "in_progress" | "completed";
+
+/**
+ * Emergency contacts and the two pickup lists. One union rather than three
+ * tables: identical fields, always read together, and "may not collect this
+ * child" is the same shape of fact as "may".
+ */
+export type ChildContactKind = "emergency" | "pickup_allowed" | "pickup_denied";
+export type TrainingProgressStatus =
+  "not_started" | "in_progress" | "completed";
 export type WriteUpSeverity = "minor" | "moderate" | "severe";
 export type AttendanceSource = "web" | "mobile" | "admin" | "kiosk";
 export type CredentialType =
@@ -24,14 +32,18 @@ export type IncidentStatus = "filed" | "signed" | "parent_notified";
 export type SopAudience = "all" | "staff" | "site_lead";
 export type ContentBlockType = "video" | "text" | "file";
 export type FormSendStatus = "sent" | "completed" | "expired";
-export type FormAccessOutcome = "viewed" | "not_found" | "expired" | "submitted";
+export type FormAccessOutcome =
+  "viewed" | "not_found" | "expired" | "submitted";
 export type KioskPinOutcome = "success" | "invalid_pin" | "locked";
-export type SupportTicketCategory = "question" | "bug" | "feature_request" | "account_access" | "other";
+export type SupportTicketCategory =
+  "question" | "bug" | "feature_request" | "account_access" | "other";
 export type SupportTicketPriority = "low" | "medium" | "high" | "urgent";
-export type SupportTicketStatus = "open" | "in_progress" | "resolved" | "closed";
+export type SupportTicketStatus =
+  "open" | "in_progress" | "resolved" | "closed";
 export type ChargeType = "tuition" | "fee" | "credit" | "adjustment";
 export type InvoiceStatus = "open" | "partial" | "paid" | "void";
-export type PaymentMethod = "cash" | "check" | "zelle" | "venmo" | "other" | "stripe";
+export type PaymentMethod =
+  "cash" | "check" | "zelle" | "venmo" | "other" | "stripe";
 export type IntensivePaymentStatus = "pending" | "paid" | "refunded" | "failed";
 
 export interface Database {
@@ -136,7 +148,9 @@ export interface Database {
           staff_id: string;
           location_id: string;
         };
-        Update: Partial<Database["public"]["Tables"]["staff_locations"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["staff_locations"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "staff_locations_staff_id_fkey";
@@ -179,7 +193,9 @@ export interface Database {
           renewal_months?: number | null;
           created_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["training_modules"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["training_modules"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "training_modules_tenant_id_fkey";
@@ -211,7 +227,9 @@ export interface Database {
           file_url?: string | null;
           created_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["training_content_blocks"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["training_content_blocks"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "training_content_blocks_module_id_fkey";
@@ -239,7 +257,9 @@ export interface Database {
           passed: boolean;
           attempted_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["quiz_attempts"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["quiz_attempts"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "quiz_attempts_staff_id_fkey";
@@ -270,7 +290,9 @@ export interface Database {
           questions?: unknown;
           passing_score?: number;
         };
-        Update: Partial<Database["public"]["Tables"]["training_quizzes"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["training_quizzes"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "training_quizzes_module_id_fkey";
@@ -302,7 +324,9 @@ export interface Database {
           certificate_url?: string | null;
           updated_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["staff_training_progress"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["staff_training_progress"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "staff_training_progress_staff_id_fkey";
@@ -465,7 +489,9 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["staff_credentials"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["staff_credentials"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "staff_credentials_staff_id_fkey";
@@ -521,7 +547,9 @@ export interface Database {
           staff_id: string;
           acknowledged_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["policy_acknowledgments"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["policy_acknowledgments"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "policy_acknowledgments_policy_id_fkey";
@@ -558,7 +586,9 @@ export interface Database {
           approved_at?: string | null;
           created_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["timecard_approvals"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["timecard_approvals"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "timecard_approvals_staff_id_fkey";
@@ -680,7 +710,9 @@ export interface Database {
           relationship?: string | null;
           is_payer?: boolean;
         };
-        Update: Partial<Database["public"]["Tables"]["child_guardians"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["child_guardians"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "child_guardians_child_id_fkey";
@@ -876,7 +908,9 @@ export interface Database {
           parent_notified_at?: string | null;
           created_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["incident_reports"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["incident_reports"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "incident_reports_tenant_id_fkey";
@@ -1024,7 +1058,9 @@ export interface Database {
           submitted_by_name?: string | null;
           submitted_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["child_form_submissions"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["child_form_submissions"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "child_form_submissions_child_id_fkey";
@@ -1057,7 +1093,9 @@ export interface Database {
           outcome: FormAccessOutcome;
           created_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["form_send_access_log"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["form_send_access_log"]["Insert"]
+        >;
         Relationships: [];
       };
       profile_pins: {
@@ -1135,7 +1173,9 @@ export interface Database {
           last_seen_at?: string | null;
           created_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["kiosk_devices"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["kiosk_devices"]["Insert"]
+        >;
         Relationships: [];
       };
       kiosk_sessions: {
@@ -1159,7 +1199,9 @@ export interface Database {
           expires_at?: string;
           created_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["kiosk_sessions"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["kiosk_sessions"]["Insert"]
+        >;
         Relationships: [];
       };
       kiosk_pin_attempts: {
@@ -1179,7 +1221,9 @@ export interface Database {
           outcome: KioskPinOutcome;
           created_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["kiosk_pin_attempts"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["kiosk_pin_attempts"]["Insert"]
+        >;
         Relationships: [];
       };
       guardian_pins: {
@@ -1199,7 +1243,9 @@ export interface Database {
           locked_until?: string | null;
           updated_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["guardian_pins"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["guardian_pins"]["Insert"]
+        >;
         Relationships: [];
       };
       child_attendance: {
@@ -1233,7 +1279,9 @@ export interface Database {
           out_override_reason?: string | null;
           created_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["child_attendance"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["child_attendance"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "child_attendance_child_id_fkey";
@@ -1264,7 +1312,9 @@ export interface Database {
           started_at?: string;
           ended_at?: string | null;
         };
-        Update: Partial<Database["public"]["Tables"]["attendance_breaks"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["attendance_breaks"]["Insert"]
+        >;
         Relationships: [];
       };
       room_transfers: {
@@ -1284,8 +1334,48 @@ export interface Database {
           room_id: string;
           transferred_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["room_transfers"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["room_transfers"]["Insert"]
+        >;
         Relationships: [];
+      };
+      child_contacts: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          child_id: string;
+          kind: ChildContactKind;
+          full_name: string;
+          relationship: string | null;
+          phone: string | null;
+          note: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          child_id: string;
+          kind: ChildContactKind;
+          full_name: string;
+          relationship?: string | null;
+          phone?: string | null;
+          note?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["child_contacts"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "child_contacts_child_id_fkey";
+            columns: ["child_id"];
+            isOneToOne: false;
+            referencedRelation: "children";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       intensive_registrations: {
         Row: {
@@ -1299,6 +1389,7 @@ export interface Database {
           status: IntensivePaymentStatus;
           checkout_session_id: string;
           payment_intent_id: string | null;
+          cohort: string;
           created_at: string;
           updated_at: string;
         };
@@ -1313,10 +1404,13 @@ export interface Database {
           status?: IntensivePaymentStatus;
           checkout_session_id: string;
           payment_intent_id?: string | null;
+          cohort?: string;
           created_at?: string;
           updated_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["intensive_registrations"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["intensive_registrations"]["Insert"]
+        >;
         Relationships: [];
       };
       intensive_reminder_sends: {
@@ -1332,7 +1426,9 @@ export interface Database {
           stage: string;
           sent_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["intensive_reminder_sends"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["intensive_reminder_sends"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "intensive_reminder_sends_registration_id_fkey";
@@ -1342,6 +1438,30 @@ export interface Database {
             referencedColumns: ["id"];
           },
         ];
+      };
+      intensive_waitlist: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          first_name: string;
+          last_name: string;
+          email: string;
+          source: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          first_name: string;
+          last_name: string;
+          email: string;
+          source?: string;
+          created_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["intensive_waitlist"]["Insert"]
+        >;
+        Relationships: [];
       };
       support_tickets: {
         Row: {
@@ -1370,7 +1490,9 @@ export interface Database {
           updated_at?: string;
           resolved_at?: string | null;
         };
-        Update: Partial<Database["public"]["Tables"]["support_tickets"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["support_tickets"]["Insert"]
+        >;
         Relationships: [];
       };
       support_ticket_messages: {
@@ -1390,7 +1512,9 @@ export interface Database {
           body: string;
           created_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["support_ticket_messages"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["support_ticket_messages"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "support_ticket_messages_ticket_id_fkey";
@@ -1424,7 +1548,9 @@ export interface Database {
           uploaded_by: string;
           created_at?: string;
         };
-        Update: Partial<Database["public"]["Tables"]["support_ticket_attachments"]["Insert"]>;
+        Update: Partial<
+          Database["public"]["Tables"]["support_ticket_attachments"]["Insert"]
+        >;
         Relationships: [
           {
             foreignKeyName: "support_ticket_attachments_ticket_id_fkey";
@@ -1437,6 +1563,45 @@ export interface Database {
       };
     };
     Views: {
+      /**
+       * The people columns of a child, and no money. This is what staff read
+       * instead of `children`, which RLS keeps director-only -- a policy can
+       * grant a row but cannot withhold a column, so the split lives here.
+       */
+      child_people: {
+        Row: {
+          child_id: string;
+          tenant_id: string;
+          full_name: string;
+          dob: string;
+          classroom: string | null;
+          status: ChildStatus;
+          schedule: ChildSchedule;
+          funding_type: FundingType;
+          start_date: string | null;
+          desired_start_date: string | null;
+          waitlisted_at: string | null;
+          pickup_code_word: string | null;
+          location_id: string | null;
+          room_id: string | null;
+          location_name: string | null;
+          room_name: string | null;
+        };
+        Relationships: [];
+      };
+      child_guardian_people: {
+        Row: {
+          child_id: string;
+          guardian_id: string;
+          tenant_id: string;
+          full_name: string;
+          phone: string | null;
+          email: string | null;
+          relationship: string | null;
+          is_payer: boolean;
+        };
+        Relationships: [];
+      };
       child_balance_status: {
         Row: {
           child_id: string;
@@ -1450,6 +1615,39 @@ export interface Database {
       };
     };
     Functions: {
+      /**
+       * Staff write path for children. Has no rate parameter by design --
+       * see 20260826090000_staff_data_entry.sql.
+       */
+      staff_save_child: {
+        Args: {
+          p_child_id: string | null;
+          p_full_name: string;
+          p_dob: string;
+          p_location_id: string;
+          p_classroom?: string | null;
+          p_status?: ChildStatus;
+          p_schedule?: ChildSchedule;
+          p_funding_type?: FundingType;
+          p_start_date?: string | null;
+          p_desired_start_date?: string | null;
+          p_pickup_code_word?: string | null;
+          p_room_id?: string | null;
+        };
+        Returns: string;
+      };
+      /** Adds a parent, reusing the existing record when we already have them. */
+      staff_link_guardian: {
+        Args: {
+          p_child_id: string;
+          p_full_name: string;
+          p_phone?: string | null;
+          p_email?: string | null;
+          p_relationship?: string | null;
+          p_is_payer?: boolean;
+        };
+        Returns: string;
+      };
       admin_set_staff_pin: {
         Args: { p_staff_id: string; p_pin: string };
         Returns: undefined;
@@ -1471,11 +1669,21 @@ export interface Database {
         Returns: string | null;
       };
       kiosk_check_child_in: {
-        Args: { p_child_id: string; p_room_id: string | null; p_guardian_id: string | null; p_staff_id: string | null };
+        Args: {
+          p_child_id: string;
+          p_room_id: string | null;
+          p_guardian_id: string | null;
+          p_staff_id: string | null;
+        };
         Returns: string;
       };
       kiosk_check_child_out: {
-        Args: { p_child_id: string; p_guardian_id: string | null; p_staff_id: string | null; p_override_reason: string | null };
+        Args: {
+          p_child_id: string;
+          p_guardian_id: string | null;
+          p_staff_id: string | null;
+          p_override_reason: string | null;
+        };
         Returns: string;
       };
     };
