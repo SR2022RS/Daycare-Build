@@ -21,6 +21,13 @@ export const INTENSIVE = {
    * tenant, seeded in supabase/seed.sql.
    */
   tenantId: "00000000-0000-0000-0000-000000000001",
+  /**
+   * The class seat's product in GoHighLevel. The order webhook seats a buyer
+   * only when their order contains this product -- the same sub-account sells
+   * the digital products at shop.akpadaycareblueprint.com, and "Order
+   * Submitted" fires for all of them. Same id in live and test mode.
+   */
+  ghlProductId: "6a89f7712d65c6a1bd0645e1",
 
   host: {
     name: "Shikara Smith",
@@ -37,6 +44,35 @@ export const INTENSIVE = {
     photo: "/intensive/shikara-host.jpg" as string | null,
   },
 
+  /**
+   * "selling"  -- seats are on sale for INTENSIVE.date.
+   * "waitlist" -- that session has run and the next date is not set. The page
+   * collects names instead of payments, /intensive/checkout redirects away,
+   * and the health check stops testing a checkout nobody is meant to reach.
+   *
+   * The dates below stay as they are on purpose: the confirmation emails and
+   * calendar file for the session that already happened must keep working for
+   * the people who attended it.
+   */
+  registration: "selling" as "selling" | "waitlist",
+
+  /** Stands in for the date everywhere while registration is "waitlist". */
+  nextDateLabel: "Date to be announced",
+
+  /**
+   * Which session a NEW paid seat belongs to, written onto every registration
+   * the webhook records.
+   *
+   * The Sept 12 2026 class has run and its attendees carry "2026-09", but the
+   * payment link stays live -- anyone paying now is buying into the next
+   * session. Keeping the two apart is what stops the reminder job emailing
+   * September's attendees when the next date is announced.
+   *
+   * When that date is set: change this to the new key (e.g. "2027-03") and
+   * rename the rows that are still "next" to match.
+   */
+  cohort: "2026-10",
+
   price: 300,
   currency: "USD",
 
@@ -46,15 +82,18 @@ export const INTENSIVE = {
   // A test price id shipped in a live deploy fails at checkout, which is
   // exactly the mistake a hardcoded value invites.
 
-  /** Sat Sept 12 2026, month is 0-indexed to match Date.UTC. */
-  date: { year: 2026, month: 8, day: 12 },
-  dateLabel: "Saturday, September 12, 2026",
-  shortDate: "Sat, Sep 12 · 12:00–5:00 PM ET",
+  /** Sat Oct 24 2026, month is 0-indexed to match Date.UTC. */
+  date: { year: 2026, month: 9, day: 24 },
+  dateLabel: "Saturday, October 24, 2026",
+  shortDate: "Sat, Oct 24 · 12:00–5:00 PM ET",
   startHour: 12,
   endHour: 17,
   doorsOpen: "11:30 AM",
 
-  /** Eastern Daylight Time on Sept 12 2026. */
+  /**
+   * Eastern Daylight Time on Oct 24 2026. Still -4: US daylight time runs to
+   * Nov 1 2026, so the offset only changes if a date moves past that.
+   */
   timezoneLabel: "ET",
   timezoneOffsetUTC: -4,
 
@@ -89,6 +128,27 @@ export const INTENSIVE = {
 
   /** Where a human reads replies. Shown as the contact link on the page. */
   contactEmail: "amazinkidsparadiseacademy@yahoo.com",
+
+  /**
+   * Where operational alerts go -- NOT contactEmail.
+   *
+   * contactEmail is Shikara's business inbox, the address buyers write to. A
+   * "checkout is broken, customers cannot buy" alert is a message for whoever
+   * maintains this, and sending it there put a technical failure notice on the
+   * business owner's phone with her own name in the From line, about a problem
+   * she had no way to act on.
+   *
+   * Read from the environment so it can be repointed without a deploy. When it
+   * is unset the alert is logged and NOT sent -- silence is better than mailing
+   * the wrong person.
+   */
+  alertEmail: process.env.INTENSIVE_ALERT_EMAIL ?? null,
+
+  /**
+   * Neutral sender for alerts. Any local part works now that the domain is
+   * verified in Resend, and it must not read as though Shikara sent it.
+   */
+  alertFromEmail: "AKPA Funnel Monitor <alerts@akpadaycareblueprint.com>",
   phone: "973-523-5318",
 
   /** null = no seat cap, no scarcity counter. */
@@ -113,6 +173,14 @@ export const FUNNEL_HOSTS = [
   "daycareownerintensive.vercel.app",
 ];
 
+/**
+ * Where the funnel lives, for anything that needs an absolute URL -- share
+ * images, canonical links. Derived from FUNNEL_HOSTS so the two cannot drift.
+ * Link previews fetch the image from here, i.e. the same domain as the link
+ * being shared, rather than the portal's domain.
+ */
+export const FUNNEL_ORIGIN = `https://${FUNNEL_HOSTS[0]}`;
+
 export interface AgendaBlock {
   time: string;
   title: string;
@@ -125,7 +193,8 @@ export const AGENDA: AgendaBlock[] = [
   {
     time: "11:30 AM",
     title: "Doors open",
-    detail: "Come early, find your seat and say hello. We start on time at noon.",
+    detail:
+      "Come early, find your seat and say hello. We start on time at noon.",
     soft: true,
   },
   {
@@ -149,7 +218,8 @@ export const AGENDA: AgendaBlock[] = [
   {
     time: "3:00 – 3:15",
     title: "Break",
-    detail: "Step away, eat something, stretch. We pick straight back up at 3:15.",
+    detail:
+      "Step away, eat something, stretch. We pick straight back up at 3:15.",
     soft: true,
   },
   {
@@ -169,27 +239,33 @@ export const AGENDA: AgendaBlock[] = [
 export const DELIVERABLES = [
   {
     title: "A licensing checklist for your state",
-    detail: "The agency, the sequence, the forms — written down in the order you actually do them.",
+    detail:
+      "The agency, the sequence, the forms — written down in the order you actually do them.",
   },
   {
     title: "A startup budget worksheet",
-    detail: "Real line items with real ranges, split into must-fund-now and can-wait.",
+    detail:
+      "Real line items with real ranges, split into must-fund-now and can-wait.",
   },
   {
     title: "An enrollment script",
-    detail: "What to say on the tour and on the phone, from the first call to the signed contract.",
+    detail:
+      "What to say on the tour and on the phone, from the first call to the signed contract.",
   },
   {
     title: "A staffing plan template",
-    detail: "Roles, credentials required on file, and a hiring sequence that survives your first year.",
+    detail:
+      "Roles, credentials required on file, and a hiring sequence that survives your first year.",
   },
   {
     title: "Your materials packet",
-    detail: "Handed to you on the day, yours to keep. Nothing is gatekept for an upsell.",
+    detail:
+      "Handed to you on the day, yours to keep. Nothing is gatekept for an upsell.",
   },
   {
     title: "The room",
-    detail: "Five hours in a room with owners solving the exact problem you are solving.",
+    detail:
+      "Five hours in a room with owners solving the exact problem you are solving.",
   },
 ];
 
@@ -231,6 +307,37 @@ export interface Faq {
 export function buildFaqs(): Faq[] {
   const days = INTENSIVE.replay.days;
 
+  // Between sessions there is no date, no price and nothing to refund, so the
+  // questions people actually have are different ones. Answering "what is the
+  // refund policy" on a page that sells nothing reads as a leftover.
+  if (isWaitlist) {
+    return [
+      {
+        question: "When is the next one?",
+        answer:
+          "Not scheduled yet. Shikara runs these in person around a working childcare business, so dates go out once the room and the calendar line up. Everyone on the waitlist hears before it is announced publicly.",
+      },
+      {
+        question: "What will it cost?",
+        answer: `The last session was $${INTENSIVE.price} for five hours, materials included. Pricing for the next date goes out with the announcement.`,
+      },
+      {
+        question: "Where is it held?",
+        answer: `The last one was in person at ${INTENSIVE.venue.name} in Bergenfield, New Jersey. The next venue goes out with the date.`,
+      },
+      {
+        question: "Does joining the list commit me to anything?",
+        answer:
+          "No. It is a heads-up, not a booking. You get the date first and decide then; there is no payment and no obligation.",
+      },
+      {
+        question: "Is this for people who have not started yet?",
+        answer:
+          "Yes — that is half the room. The first two hours are built for people with no license and no space. If you already opened, the enrollment, staffing and profitability blocks are where your five hours pay for themselves.",
+      },
+    ];
+  }
+
   return [
     {
       question: "Do I get a replay?",
@@ -269,10 +376,20 @@ export function buildFaqs(): Faq[] {
 /** Event start as a UTC epoch ms, derived from the configured ET offset. */
 export function eventStartUTC(): number {
   const { date, startHour, timezoneOffsetUTC } = INTENSIVE;
-  return Date.UTC(date.year, date.month, date.day, startHour - timezoneOffsetUTC, 0, 0);
+  return Date.UTC(
+    date.year,
+    date.month,
+    date.day,
+    startHour - timezoneOffsetUTC,
+    0,
+    0,
+  );
 }
 
 export const isInPerson = INTENSIVE.format === "in-person";
+
+/** Seats are not on sale; the funnel collects names for the next date. */
+export const isWaitlist = INTENSIVE.registration === "waitlist";
 
 /** "Live on Zoom" / "Republic 23 Lounge · Bergenfield, NJ" */
 export const whereLabel = isInPerson
@@ -301,7 +418,11 @@ export function buildIcs(): string {
    * read "87 S Washington Ave, Bergenfield" as two locations.
    */
   const esc = (v: string) =>
-    v.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+    v
+      .replace(/\\/g, "\\\\")
+      .replace(/;/g, "\\;")
+      .replace(/,/g, "\\,")
+      .replace(/\n/g, "\\n");
 
   /**
    * Content lines are limited to 75 octets; continuations start with a
@@ -323,7 +444,10 @@ export function buildIcs(): string {
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     "BEGIN:VEVENT",
-    "UID:akpa-daycare-intensive-2026@amazinkidsparadiseacademy.com",
+    // Cohort-scoped: a calendar treats a repeated UID as an update to the
+    // event it already has, so a fixed one would silently rewrite September's
+    // entry in the calendar of anybody who attended it.
+    `UID:akpa-daycare-intensive-${INTENSIVE.cohort}@amazinkidsparadiseacademy.com`,
     `DTSTAMP:${stamp(startHour)}`,
     `DTSTART:${stamp(startHour)}`,
     `DTEND:${stamp(endHour)}`,
@@ -344,7 +468,9 @@ export function buildIcs(): string {
     "BEGIN:VALARM",
     "TRIGGER:-PT2H",
     "ACTION:DISPLAY",
-    fold(`DESCRIPTION:${esc(`${INTENSIVE.name} starts at noon. Doors open ${INTENSIVE.doorsOpen}`)}`),
+    fold(
+      `DESCRIPTION:${esc(`${INTENSIVE.name} starts at noon. Doors open ${INTENSIVE.doorsOpen}`)}`,
+    ),
     "END:VALARM",
     "END:VEVENT",
     "END:VCALENDAR",

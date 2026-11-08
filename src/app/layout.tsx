@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Cinzel, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { getSiteUrl } from "@/lib/site-url";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -19,6 +20,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  // Absolute base for file-convention metadata (./opengraph-image.png) on
+  // portal pages. getSiteUrl() always yields a valid origin -- it falls back to
+  // Vercel's own URLs and finally localhost -- so this cannot throw at build.
+  // The class page overrides it with the funnel's domain.
+  metadataBase: new URL(getSiteUrl()),
   title: "AKPA University",
   description: "Staff training and management system for childcare centers.",
 };

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createChild } from "@/lib/children/actions";
 import { CADENCE_LABELS, FUNDING_TYPE_LABELS, SCHEDULE_LABELS } from "@/lib/children/labels";
 import { ChildrenTable, type ChildRow } from "@/components/children/children-table";
+import { StaffChildForm } from "@/components/children/staff-child-form";
 
 export default async function ChildrenPage() {
   const session = await verifySession();
@@ -201,11 +202,25 @@ export default async function ChildrenPage() {
 async function StaffChildrenList({ tenantId }: { tenantId: string }) {
   const supabase = await createClient();
 
-  const { data: children } = await supabase
-    .from("child_balance_status")
-    .select("child_id, full_name, classroom, location_name, balance_status")
-    .eq("tenant_id", tenantId)
-    .order("full_name");
+  const [{ data: children }, { data: locations }, { data: rooms }] = await Promise.all([
+    supabase
+      .from("child_balance_status")
+      .select("child_id, full_name, classroom, location_name, balance_status")
+      .eq("tenant_id", tenantId)
+      .order("full_name"),
+    supabase
+      .from("locations")
+      .select("id, name")
+      .eq("tenant_id", tenantId)
+      .eq("is_active", true)
+      .order("name"),
+    supabase
+      .from("rooms")
+      .select("id, name")
+      .eq("tenant_id", tenantId)
+      .eq("is_active", true)
+      .order("name"),
+  ]);
 
   const rows = (children ?? []).map((c) => ({
     id: c.child_id,
@@ -245,10 +260,28 @@ async function StaffChildrenList({ tenantId }: { tenantId: string }) {
             </li>
           ))}
           {rows.length === 0 && (
-            <li className="px-4.5 py-6 text-center text-sm text-gray-500">No children on file.</li>
+            <li className="px-4.5 py-6 text-center text-sm text-gray-500">
+              No children yet. Add the first one below.
+            </li>
           )}
         </ul>
       </div>
+
+      <details
+        className="group mt-4 overflow-hidden rounded-xl border border-gray-200 bg-white"
+        open={rows.length === 0}
+      >
+        <summary className="cursor-pointer px-4.5 py-3.5 text-sm font-semibold text-gray-900 hover:bg-gray-50">
+          + Add a child
+        </summary>
+        <div className="border-t border-gray-100">
+          <StaffChildForm
+            locations={locations ?? []}
+            rooms={rooms ?? []}
+            onDoneLabel="Add child"
+          />
+        </div>
+      </details>
     </div>
   );
 }

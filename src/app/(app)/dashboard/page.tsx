@@ -6,6 +6,7 @@ import { todayISO } from "@/lib/billing/dates";
 import { getClearanceRollup, getExpiringCredentialsList } from "@/lib/staff/credentials";
 import { getNextClosure } from "@/lib/calendar/next-closure";
 import { getOpenShifts } from "@/lib/attendance/timecard";
+import { getPresentChildren } from "@/lib/attendance/child-presence";
 import { getRevenueSummary } from "@/lib/billing/queries";
 import { getWaitlist } from "@/lib/rooms/queries";
 import { buildAttentionItems } from "@/lib/dashboard/attention";
@@ -65,6 +66,7 @@ export default async function DashboardPage() {
     revenue,
     waitlist,
     nextClosure,
+    present,
   ] = await Promise.all([
     supabase.from("profiles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
     supabase
@@ -77,6 +79,7 @@ export default async function DashboardPage() {
     getRevenueSummary(supabase, tenantId),
     getWaitlist(supabase, tenantId),
     getNextClosure(supabase, tenantId),
+    getPresentChildren(supabase, tenantId),
   ]);
 
   const attention = buildAttentionItems({
@@ -84,7 +87,17 @@ export default async function DashboardPage() {
     expiring,
     aging: revenue.aging,
     openShifts,
+    staleVisits: present.stale,
   });
+
+  // Keyed by room id for OccupancyPanel. Unassigned children are counted in
+  // `present.total` but belong to no room, so they are deliberately absent
+  // here -- the panel lists rooms, and "Who's here" is where an unassigned
+  // child is actually visible.
+  const presentByRoom: Record<string, number> = {};
+  for (const group of present.rooms) {
+    if (group.roomId !== null) presentByRoom[group.roomId] = group.children.length;
+  }
 
   // With no progress rows at all, completed/total is 0/0. Rendering that as
   // "0%" reads as "everyone failed" rather than "nobody has started yet".
@@ -105,6 +118,11 @@ export default async function DashboardPage() {
       label: "On the floor",
       value: String(openShifts.length),
       meta: openShifts.length === 1 ? "clocked in" : undefined,
+    },
+    {
+      label: "Children here",
+      value: String(present.total),
+      meta: present.total === 0 ? "none checked in" : undefined,
     },
     training,
     {
@@ -149,7 +167,7 @@ export default async function DashboardPage() {
       </div>
 
       <div className="mt-4">
-        <OccupancyPanel groups={waitlist} />
+        <OccupancyPanel groups={waitlist} presentByRoom={presentByRoom} />
       </div>
     </div>
   );

@@ -10,25 +10,44 @@ import {
   NOT_FOR_YOU,
   buildFaqs,
   isInPerson,
+  isWaitlist,
   whereLabel,
+  FUNNEL_ORIGIN,
 } from "@/lib/intensive/config";
 import { CtaButton } from "@/components/intensive/cta-button";
+import { WaitlistForm } from "@/components/intensive/waitlist-form";
 import { CountdownBar, HeroCountdown } from "@/components/intensive/countdown";
 import { FaqList } from "@/components/intensive/faq-list";
 import { StickyCta } from "@/components/intensive/sticky-cta";
 
-const DESCRIPTION =
-  "A live five-hour working session for people opening a childcare center — and newer owners trying to make one profitable. Leave with a licensing path, a startup budget, an enrollment plan and a staffing model.";
+const DESCRIPTION = isWaitlist
+  ? "A live five-hour working session for people opening a childcare center — and newer owners trying to make one profitable. The next date is being scheduled; join the waitlist to hear it first."
+  : "A live five-hour working session for people opening a childcare center — and newer owners trying to make one profitable. Leave with a licensing path, a startup budget, an enrollment plan and a staffing model.";
+
+/** The date, or "Date to be announced" between sessions. */
+const headlineDate = isWaitlist ? INTENSIVE.nextDateLabel : INTENSIVE.dateLabel;
 
 export const metadata: Metadata = {
-  title: `${INTENSIVE.name} — ${INTENSIVE.dateLabel}`,
+  // The share image is a file convention (./opengraph-image.png) and needs an
+  // absolute URL. Without this it would resolve against the portal's domain,
+  // and a preview of akpadaycareblueprint.com would pull its image from
+  // somewhere else entirely.
+  metadataBase: new URL(FUNNEL_ORIGIN),
+  alternates: { canonical: "/" },
+  title: `${INTENSIVE.name} — ${headlineDate}`,
   description: DESCRIPTION,
   openGraph: {
     title: INTENSIVE.name,
     description: DESCRIPTION,
     type: "website",
+    url: "/",
+    siteName: "Amazin Kids Paradise Academy",
   },
-  twitter: { card: "summary_large_image", title: INTENSIVE.name, description: DESCRIPTION },
+  twitter: {
+    card: "summary_large_image",
+    title: INTENSIVE.name,
+    description: DESCRIPTION,
+  },
 };
 
 const HERO_BACKGROUND =
@@ -40,11 +59,14 @@ const HERO_BACKGROUND =
   "radial-gradient(130% 95% at 8% 0%, rgba(227,12,123,.34) 0%, rgba(10,10,13,0) 64%)," +
   "#0A0A0D";
 
-const eyebrow = `${INTENSIVE.dateLabel} · 12:00–5:00 PM ${INTENSIVE.timezoneLabel} · ${
-  isInPerson ? "Bergenfield, NJ" : "Live on Zoom"
-}`;
+const where = isInPerson ? "Bergenfield, NJ" : "Live on Zoom";
+const eyebrow = isWaitlist
+  ? `Next date to be announced · ${where}`
+  : `${INTENSIVE.dateLabel} · 12:00–5:00 PM ${INTENSIVE.timezoneLabel} · ${where}`;
 
-const replayLine = INTENSIVE.replay.included ? ` · Replay for ${INTENSIVE.replay.days} days` : "";
+const replayLine = INTENSIVE.replay.included
+  ? ` · Replay for ${INTENSIVE.replay.days} days`
+  : "";
 const ctaFinePrint = `${INTENSIVE.dateLabel} · ${whereLabel}${replayLine}`;
 const stickySubtitle = `${INTENSIVE.shortDate} · $${INTENSIVE.price}`;
 
@@ -53,7 +75,7 @@ export default function IntensiveLandingPage() {
 
   return (
     <div className="bg-brand-ink">
-      <CountdownBar subtitle={stickySubtitle} />
+      {!isWaitlist && <CountdownBar subtitle={stickySubtitle} />}
 
       <header
         className="relative overflow-hidden px-6 pt-11 pb-13"
@@ -86,21 +108,35 @@ export default function IntensiveLandingPage() {
             {eyebrow}
           </p>
           <h1 className="mt-4 text-pretty font-serif text-[34px] font-semibold leading-[1.15] tracking-[-.005em] text-[#F5F3EE] sm:text-[40px]">
-            Stop researching how to open a daycare. Spend five hours actually planning yours.
+            Stop researching how to open a daycare. Spend five hours actually
+            planning yours.
           </h1>
           <div className="my-[26px] h-px w-[110px] bg-gradient-to-r from-brand-primary to-transparent" />
           <p className="max-w-[560px] text-pretty text-[16.5px] leading-[1.68] text-[#B8B2A9]">
-            A live working session for people opening a childcare center — and newer owners trying
-            to make one profitable. You leave with a licensing path, a startup budget, an enrollment
-            plan and a staffing model. Not another folder of bookmarked articles.
+            A live working session for people opening a childcare center — and
+            newer owners trying to make one profitable. You leave with a
+            licensing path, a startup budget, an enrollment plan and a staffing
+            model. Not another folder of bookmarked articles.
           </p>
 
-          <div className="mt-8">
-            <CtaButton className="max-w-[420px]">Reserve My Seat — ${INTENSIVE.price}</CtaButton>
-            <p className="mt-3 text-[13px] leading-[1.7] text-[#8C857C]">{ctaFinePrint}</p>
-          </div>
+          {isWaitlist ? (
+            <div id="waitlist" className="mt-9 max-w-[460px] scroll-mt-6">
+              <WaitlistForm />
+            </div>
+          ) : (
+            <>
+              <div className="mt-8">
+                <CtaButton className="max-w-[420px]">
+                  Reserve My Seat — ${INTENSIVE.price}
+                </CtaButton>
+                <p className="mt-3 text-[13px] leading-[1.7] text-[#8C857C]">
+                  {ctaFinePrint}
+                </p>
+              </div>
 
-          <HeroCountdown />
+              <HeroCountdown />
+            </>
+          )}
         </div>
       </header>
 
@@ -114,30 +150,35 @@ export default function IntensiveLandingPage() {
           </h2>
           <div className="flex flex-col gap-[18px] text-base leading-[1.72] text-[#334155]">
             <p className="text-pretty">
-              You have the tabs open. Licensing requirements from a state PDF written in 2019, a
-              YouTube video about ratios, three Facebook groups where everyone gives a different
-              answer. You still do not know which agency to call first, or what they will ask when
-              you do.
+              You have the tabs open. Licensing requirements from a state PDF
+              written in 2019, a YouTube video about ratios, three Facebook
+              groups where everyone gives a different answer. You still do not
+              know which agency to call first, or what they will ask when you
+              do.
             </p>
             <p className="text-pretty">
-              You have a number in your head for what this costs to open. You are not confident in
-              it. You do not know what has to be funded before you can be licensed, and what can
-              honestly wait until month four — so the whole thing sits, because the wrong guess is
+              You have a number in your head for what this costs to open. You
+              are not confident in it. You do not know what has to be funded
+              before you can be licensed, and what can honestly wait until month
+              four — so the whole thing sits, because the wrong guess is
               expensive.
             </p>
             <p className="text-pretty">
-              Or you already opened. You have a beautiful room, a license on the wall, and three
-              children enrolled. Nobody told you that filling seats starts months before the doors
-              do, and now every week of low enrollment is coming out of your own account.
+              Or you already opened. You have a beautiful room, a license on the
+              wall, and three children enrolled. Nobody told you that filling
+              seats starts months before the doors do, and now every week of low
+              enrollment is coming out of your own account.
             </p>
             <p className="text-pretty">
-              And you have hired. Twice. Both of them were gone inside six weeks, and you are back
-              to opening, closing, covering the infant room and doing payroll at 11 PM.
+              And you have hired. Twice. Both of them were gone inside six
+              weeks, and you are back to opening, closing, covering the infant
+              room and doing payroll at 11 PM.
             </p>
           </div>
           <p className="mt-6 border-l-[3px] border-brand-primary pl-[18px] text-pretty text-[16.5px] font-medium leading-[1.6] text-[#0F172A]">
-            None of that is a research problem. It is an order-of-operations problem — and it is
-            fixable in an afternoon with someone who has already done it three times.
+            None of that is a research problem. It is an order-of-operations
+            problem — and it is fixable in an afternoon with someone who has
+            already done it three times.
           </p>
         </div>
       </section>
@@ -151,8 +192,9 @@ export default function IntensiveLandingPage() {
             What we&rsquo;ll cover
           </h2>
           <p className="mb-[26px] text-[14.5px] leading-[1.6] text-[#55647A]">
-            Room opens at {INTENSIVE.doorsOpen} {INTENSIVE.timezoneLabel}. Draft running order —
-            Shikara may adjust before the day.
+            {isWaitlist
+              ? "Five hours, in this order. Shikara may adjust the running order for the next date."
+              : `Room opens at ${INTENSIVE.doorsOpen} ${INTENSIVE.timezoneLabel}. Draft running order — Shikara may adjust before the day.`}
           </p>
 
           <ol className="flex flex-col gap-2.5">
@@ -160,7 +202,9 @@ export default function IntensiveLandingPage() {
               <li
                 key={block.title}
                 className="grid grid-cols-1 items-start gap-x-4 gap-y-1 rounded-[10px] border border-[#E6E9EE] bg-white px-[18px] py-4 shadow-[0_1px_2px_rgba(15,23,42,.05)] sm:grid-cols-[118px_1fr]"
-                style={{ borderLeft: `3px solid ${block.soft ? "#E2E6EC" : "#E30C7B"}` }}
+                style={{
+                  borderLeft: `3px solid ${block.soft ? "#E2E6EC" : "#E30C7B"}`,
+                }}
               >
                 <span
                   className="pt-0.5 text-[12.5px] font-semibold tabular-nums"
@@ -202,7 +246,9 @@ export default function IntensiveLandingPage() {
                 >
                   {String(index + 1).padStart(2, "0")}
                 </span>
-                <h3 className="mt-2 text-[15px] font-semibold text-[#0F172A]">{item.title}</h3>
+                <h3 className="mt-2 text-[15px] font-semibold text-[#0F172A]">
+                  {item.title}
+                </h3>
                 <p className="mt-[5px] text-pretty text-[13.5px] leading-[1.6] text-[#64748B]">
                   {item.detail}
                 </p>
@@ -213,8 +259,14 @@ export default function IntensiveLandingPage() {
       </section>
 
       <section className="bg-brand-ink px-6 py-[58px]">
-        <div className="mx-auto grid max-w-[720px] grid-cols-[repeat(auto-fit,minmax(240px,1fr))] items-start gap-[30px]">
-          <div className="max-w-[420px]">
+        {/* Two rows on wide screens: photo over stats on the left, bio spanning
+            both on the right. The 1fr second row soaks up the bio's extra
+            height, so the stats sit directly under the photo instead of
+            drifting to the bottom of a stretched row. On a phone the grid is
+            one column and DOM order applies -- photo, bio, then stats -- so the
+            numbers never land between the photo and her name. */}
+        <div className="mx-auto grid max-w-[720px] items-start gap-[30px] sm:grid-cols-2 sm:grid-rows-[auto_1fr]">
+          <div className="max-w-[420px] sm:col-start-1 sm:row-start-1">
             {INTENSIVE.host.photo ? (
               // Rendered at the photo's own aspect ratio rather than cropped
               // to a portrait frame -- this shot is landscape, and forcing it
@@ -241,7 +293,7 @@ export default function IntensiveLandingPage() {
             )}
           </div>
 
-          <div className="min-w-0">
+          <div className="min-w-0 sm:col-start-2 sm:row-span-2 sm:row-start-1">
             <p className="text-[10.5px] font-bold uppercase tracking-[.22em] text-[#FF4FA3]">
               Your host
             </p>
@@ -252,29 +304,31 @@ export default function IntensiveLandingPage() {
             <div className="my-5 h-px w-[90px] bg-gradient-to-r from-brand-primary to-transparent" />
             <div className="flex flex-col gap-3.5 text-[15.5px] leading-[1.7] text-[#B8B2A9]">
               <p className="text-pretty">
-                I started from my mama&rsquo;s house. No investor, no blueprint, no one in my family
-                who had done it — just a license, a room, and children whose parents needed
-                somewhere safe to be at 6 AM.
+                I started from my mama&rsquo;s house. No investor, no blueprint,
+                no one in my family who had done it — just a license, a room,
+                and children whose parents needed somewhere safe to be at 6 AM.
               </p>
               <p className="text-pretty">
-                That became a multi-location childcare brand. I have made every expensive mistake
-                available on the way here, and I am not going to make you pay tuition for the same
-                ones. No gatekeeping. Real game, real results.
+                That became a multi-location childcare brand. I have made every
+                expensive mistake available on the way here, and I am not going
+                to make you pay tuition for the same ones. No gatekeeping. Real
+                game, real results.
               </p>
             </div>
-            <dl className="mt-7 flex flex-wrap gap-8 border-t border-[rgba(227,12,123,.22)] pt-6">
-              {CREDIBILITY.map((stat) => (
-                <div key={stat.label}>
-                  <dd className="font-serif text-[30px] font-semibold leading-none text-[#F5F3EE]">
-                    {stat.value}
-                  </dd>
-                  <dt className="mt-2 text-[10px] uppercase tracking-[.18em] text-[#8C857C]">
-                    {stat.label}
-                  </dt>
-                </div>
-              ))}
-            </dl>
           </div>
+
+          <dl className="grid max-w-[420px] grid-cols-2 gap-x-8 gap-y-6 border-t border-[rgba(227,12,123,.22)] pt-6 sm:col-start-1 sm:row-start-2">
+            {CREDIBILITY.map((stat) => (
+              <div key={stat.label}>
+                <dd className="font-serif text-[30px] font-semibold leading-none text-[#F5F3EE]">
+                  {stat.value}
+                </dd>
+                <dt className="mt-2 text-[10px] uppercase tracking-[.18em] text-[#8C857C]">
+                  {stat.label}
+                </dt>
+              </div>
+            ))}
+          </dl>
         </div>
       </section>
 
@@ -284,11 +338,19 @@ export default function IntensiveLandingPage() {
             <h3 className="mb-1 font-serif text-lg font-semibold text-[#0F172A]">
               This is for you if
             </h3>
-            <p className="mb-4 text-[12.5px] text-[#64748B]">Five hours will move you</p>
+            <p className="mb-4 text-[12.5px] text-[#64748B]">
+              Five hours will move you
+            </p>
             <ul className="flex flex-col gap-3">
               {FOR_YOU.map((line) => (
-                <li key={line} className="grid grid-cols-[16px_1fr] items-start gap-[11px]">
-                  <span aria-hidden="true" className="text-[15px] leading-normal text-[#2F7233]">
+                <li
+                  key={line}
+                  className="grid grid-cols-[16px_1fr] items-start gap-[11px]"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="text-[15px] leading-normal text-[#2F7233]"
+                  >
                     ✓
                   </span>
                   <span className="text-pretty text-[14.5px] leading-[1.55] text-[#334155]">
@@ -303,11 +365,21 @@ export default function IntensiveLandingPage() {
             <h3 className="mb-1 font-serif text-lg font-semibold text-[#0F172A]">
               This is not for you if
             </h3>
-            <p className="mb-4 text-[12.5px] text-[#64748B]">Please keep your ${INTENSIVE.price}</p>
+            <p className="mb-4 text-[12.5px] text-[#64748B]">
+              {isWaitlist
+                ? "Please skip the list"
+                : `Please keep your $${INTENSIVE.price}`}
+            </p>
             <ul className="flex flex-col gap-3">
               {NOT_FOR_YOU.map((line) => (
-                <li key={line} className="grid grid-cols-[16px_1fr] items-start gap-[11px]">
-                  <span aria-hidden="true" className="text-[15px] leading-normal text-[#B42318]">
+                <li
+                  key={line}
+                  className="grid grid-cols-[16px_1fr] items-start gap-[11px]"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="text-[15px] leading-normal text-[#B42318]"
+                  >
                     ✕
                   </span>
                   <span className="text-pretty text-[14.5px] leading-[1.55] text-[#334155]">
@@ -332,17 +404,41 @@ export default function IntensiveLandingPage() {
       <section className="bg-brand-ink px-6 pt-[62px] pb-[88px] text-center">
         <div className="mx-auto max-w-[560px]">
           <h2 className="text-pretty font-serif text-[28px] font-semibold leading-tight text-[#F5F3EE] sm:text-[30px]">
-            This is your time. This is your move.
+            {isWaitlist
+              ? "Be first to know the next date."
+              : "This is your time. This is your move."}
           </h2>
-          <p className="mt-4 mb-7 text-[15.5px] leading-[1.7] text-[#8C857C]">
-            {INTENSIVE.dateLabel}. 12:00–5:00 PM {INTENSIVE.timezoneLabel}. {whereLabel}. $
-            {INTENSIVE.price}, one payment, materials included.
-          </p>
+          {isWaitlist ? (
+            <p className="mt-4 mb-7 text-[15.5px] leading-[1.7] text-[#8C857C]">
+              The September session has run. The next one is being scheduled —
+              join the list and you&rsquo;ll get the date, the venue and the
+              price before anyone else.
+            </p>
+          ) : (
+            <p className="mt-4 mb-7 text-[15.5px] leading-[1.7] text-[#8C857C]">
+              {INTENSIVE.dateLabel}. 12:00–5:00 PM {INTENSIVE.timezoneLabel}.{" "}
+              {whereLabel}. ${INTENSIVE.price}, one payment, materials included.
+            </p>
+          )}
           <div className="mx-auto max-w-[400px]">
-            <CtaButton>Reserve My Seat — ${INTENSIVE.price}</CtaButton>
+            {isWaitlist ? (
+              // Links back up to the one form rather than rendering a second
+              // copy: two instances would duplicate every input id on the page.
+              <a
+                href="#waitlist"
+                className="intensive-cta flex h-[58px] w-full items-center justify-center rounded-[10px] font-serif text-base font-bold tracking-[.06em] text-white"
+              >
+                Join the waitlist
+              </a>
+            ) : (
+              <CtaButton>Reserve My Seat — ${INTENSIVE.price}</CtaButton>
+            )}
           </div>
           <p className="mt-[22px] text-[12.5px] leading-[1.8] text-[#8C857C]">
-            <a href={`mailto:${INTENSIVE.contactEmail}`} className="hover:text-[#3CC0D8]">
+            <a
+              href={`mailto:${INTENSIVE.contactEmail}`}
+              className="hover:text-[#3CC0D8]"
+            >
               {INTENSIVE.contactEmail}
             </a>{" "}
             ·{" "}
@@ -356,7 +452,7 @@ export default function IntensiveLandingPage() {
         </div>
       </section>
 
-      <StickyCta subtitle={stickySubtitle} />
+      {!isWaitlist && <StickyCta subtitle={stickySubtitle} />}
     </div>
   );
 }

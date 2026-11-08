@@ -1,6 +1,7 @@
 import {
   BookOpen,
   Calendar,
+  DoorOpen,
   LayoutDashboard,
   Settings,
   Users,
@@ -12,6 +13,7 @@ import {
   LifeBuoy,
   Receipt,
   ClipboardList,
+  Grid2x2,
 } from "lucide-react";
 
 import type { AppRole } from "@/types/database.types";
@@ -32,6 +34,8 @@ export function getNavSections(role: AppRole): NavSection[] {
         label: "Children",
         items: [
           { title: "Children & guardians", href: "/children", icon: Baby },
+          { title: "Rooms", href: "/rooms", icon: Grid2x2 },
+          { title: "Who's here", href: "/attendance/children", icon: DoorOpen },
           { title: "Waitlist", href: "/waitlist", icon: ClipboardList },
         ],
       },
@@ -74,6 +78,12 @@ export function getNavSections(role: AppRole): NavSection[] {
         { title: "Time clock", href: "/attendance", icon: Calendar },
         { title: "Incident reports", href: "/incidents", icon: ShieldAlert },
         { title: "Children", href: "/children", icon: Baby },
+        // Naming and sizing a room is not a financial decision, and making a
+        // director do it is how the rooms never got entered at all.
+        { title: "Rooms", href: "/rooms", icon: Grid2x2 },
+        // Staff running a room genuinely need this one -- it is the only
+        // surface that answers "who is in my room right now".
+        { title: "Who's here", href: "/attendance/children", icon: DoorOpen },
       ],
     },
     {

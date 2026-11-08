@@ -162,15 +162,30 @@ export function OverduePanel({ aging }: { aging: AgingRow[] }) {
  * and still be out of ratio, and this must not be mistaken for a compliance
  * signal. Ratio tracking is a separate feature.
  */
-export function OccupancyPanel({ groups }: { groups: WaitlistGroup[] }) {
+/**
+ * `presentByRoom` is keyed by room id, counting children currently checked
+ * in. Enrolled is kept as the secondary figure rather than replaced: enrolled
+ * is what the room is sold to, present is what it is running at, and a
+ * director reading "6 here / 8 enrolled" learns something neither number
+ * carries alone. Rooms with nobody in them show 0 rather than being hidden --
+ * an empty room at 10am is exactly the thing worth noticing.
+ */
+export function OccupancyPanel({
+  groups,
+  presentByRoom,
+}: {
+  groups: WaitlistGroup[];
+  presentByRoom: Record<string, number>;
+}) {
   const rooms = groups.filter((g) => g.roomId !== null);
   const waiting = groups.reduce((sum, g) => sum + g.waiting.length, 0);
+  const totalPresent = Object.values(presentByRoom).reduce((sum, n) => sum + n, 0);
 
   return (
     <Panel>
       <PanelHeader
         title="Rooms & waitlist"
-        subtitle="Seats, not staffing ratio"
+        subtitle={`${totalPresent} here now · seats, not staffing ratio`}
         right={waiting > 0 ? <Pill tone="info">{waiting} waiting</Pill> : undefined}
       />
       {rooms.length === 0 ? (
@@ -201,17 +216,20 @@ export function OccupancyPanel({ groups }: { groups: WaitlistGroup[] }) {
                     tone={isFull ? "warn" : "accent"}
                   />
                 </div>
-                <span className="shrink-0 text-[12.5px] text-gray-600 tabular-nums">
-                  {capacity === null ? (
-                    <span className="text-gray-400">{enrolled} · no capacity set</span>
-                  ) : (
-                    <>
-                      {enrolled}/{capacity}
-                      {!isFull && openSpots !== null && (
-                        <span className="text-gray-400"> · {openSpots} open</span>
-                      )}
-                    </>
-                  )}
+                <span className="shrink-0 text-right text-[12.5px] text-gray-600 tabular-nums">
+                  <span className="block font-medium text-gray-900">
+                    {presentByRoom[group.roomId!] ?? 0} here
+                  </span>
+                  <span className="block text-gray-400">
+                    {capacity === null ? (
+                      <>{enrolled} enrolled · no capacity set</>
+                    ) : (
+                      <>
+                        {enrolled}/{capacity} enrolled
+                        {!isFull && openSpots !== null && <> · {openSpots} open</>}
+                      </>
+                    )}
+                  </span>
                 </span>
               </li>
             );

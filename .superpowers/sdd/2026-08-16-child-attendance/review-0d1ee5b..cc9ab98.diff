@@ -1,0 +1,411 @@
+# Review package: 0d1ee5b..HEAD
+
+## Commits
+cc9ab98 Add kiosk RPCs for guardian PIN and child check-in/out
+406f40e Add child attendance and guardian PIN schema
+
+## Files changed
+ .../migrations/20260817120000_child_attendance.sql | 106 +++++++++
+ .../20260817120100_child_attendance_rpcs.sql       | 256 +++++++++++++++++++++
+ .../20260817120200_kiosk_guardian_sessions.sql     |  18 ++
+ 3 files changed, 380 insertions(+)
+
+## Diff
+diff --git a/supabase/migrations/20260817120000_child_attendance.sql b/supabase/migrations/20260817120000_child_attendance.sql
+new file mode 100644
+index 0000000..9d34724
+--- /dev/null
++++ b/supabase/migrations/20260817120000_child_attendance.sql
+@@ -0,0 +1,106 @@
++-- Child check-in/out. Presence, not enrollment: the ratio work that follows
++-- needs to know who is actually in the building, and until now nothing did.
++--
++-- Guardian PINs mirror profile_pins exactly -- bcrypt, no RLS policies, only
++-- SECURITY DEFINER functions and the service-role admin client may touch them.
++-- A 4-digit PIN has 10,000 possible values, so the hash table must never be
++-- readable, and the kiosk must never be able to enumerate it.
++
++-- ── guardian_pins ────────────────────────────────────────────────────────
++create table public.guardian_pins (
++  guardian_id uuid primary key references public.guardians (id) on delete cascade,
++  tenant_id uuid not null references public.tenants (id) on delete cascade,
++  pin_hash text not null,
++  failed_attempts int not null default 0,
++  locked_until timestamptz,
++  updated_at timestamptz not null default now()
++);
++
++create index guardian_pins_tenant_id_idx on public.guardian_pins (tenant_id);
++
++-- Deliberately NO policies, matching profile_pins.
++alter table public.guardian_pins enable row level security;
++
++-- ── child_attendance ─────────────────────────────────────────────────────
++-- One row per VISIT, not per day. Children leave for appointments and come
++-- back, and a child who left at 11am must stop counting toward a ratio.
++-- "Currently present" is checked_out_at is null.
++create table public.child_attendance (
++  id uuid primary key default gen_random_uuid(),
++  tenant_id uuid not null references public.tenants (id) on delete cascade,
++  location_id uuid not null references public.locations (id) on delete cascade,
++  child_id uuid not null references public.children (id) on delete cascade,
++  -- Defaults from children.room_id, but staff may place a child elsewhere for
++  -- the day, and the ratio must reflect where the child actually is.
++  room_id uuid references public.rooms (id) on delete set null,
++  checked_in_at timestamptz not null default now(),
++  checked_out_at timestamptz,
++  in_by_guardian_id uuid references public.guardians (id) on delete set null,
++  in_by_staff_id uuid references public.profiles (id) on delete set null,
++  out_by_guardian_id uuid references public.guardians (id) on delete set null,
++  out_by_staff_id uuid references public.profiles (id) on delete set null,
++  -- Set when staff released a child to someone not on the authorized list.
++  -- Enforcement arrives in the pickup-authorization plan; the column exists
++  -- now so the audit trail is complete from the first check-out.
++  out_override_reason text,
++  created_at timestamptz not null default now(),
++
++  -- Exactly one actor on the way in: either the guardian authenticated, or
++  -- staff vouched. An audit must be able to tell those apart.
++  constraint child_attendance_in_actor
++    check (num_nonnulls(in_by_guardian_id, in_by_staff_id) = 1),
++  -- And exactly one on the way out, but only once there is a way out.
++  constraint child_attendance_out_actor
++    check (
++      (checked_out_at is null and num_nonnulls(out_by_guardian_id, out_by_staff_id) = 0)
++      or (checked_out_at is not null and num_nonnulls(out_by_guardian_id, out_by_staff_id) = 1)
++    ),
++  constraint child_attendance_out_after_in
++    check (checked_out_at is null or checked_out_at >= checked_in_at)
++);
++
++-- The live view: who is present, by room. Partial, because the open visits are
++-- a tiny slice of the table after a few months.
++create index child_attendance_present_idx
++  on public.child_attendance (tenant_id, room_id)
++  where checked_out_at is null;
++
++create index child_attendance_child_idx
++  on public.child_attendance (child_id, checked_in_at desc);
++
++-- A child cannot be in two places at once. Also makes check-in idempotent:
++-- a second tap hits this and is turned into a no-op by the RPC.
++create unique index child_attendance_one_open_visit
++  on public.child_attendance (child_id)
++  where checked_out_at is null;
++
++alter table public.child_attendance enable row level security;
++
++-- Staff need to see today's roster for their own location to run a room;
++-- directors see the whole tenant. Writes never happen through RLS -- only
++-- through the SECURITY DEFINER RPCs below, called by the kiosk's admin client.
++create policy "child_attendance_select" on public.child_attendance
++  for select to authenticated
++  using (
++    tenant_id = public.current_tenant_id()
++    and (
++      public.current_role() in ('director', 'platform_admin')
++      or public.has_location_access(location_id)
++    )
++  );
++
++create policy "child_attendance_write" on public.child_attendance
++  for all to authenticated
++  using (tenant_id = public.current_tenant_id() and public.current_role() in ('director', 'platform_admin'))
++  with check (tenant_id = public.current_tenant_id() and public.current_role() in ('director', 'platform_admin'));
++
++-- ── children.pickup_code_word ────────────────────────────────────────────
++-- Collected by the pickup_authorization form today but trapped in JSONB. The
++-- fallback when someone unexpected arrives and staff verify by phone.
++alter table public.children add column pickup_code_word text;
++
++-- ── kiosk_pin_attempts.guardian_id ───────────────────────────────────────
++-- The attempt log's profile_id references profiles, so a guardian attempt has
++-- nowhere to go. Add a parallel column rather than loosening that FK.
++alter table public.kiosk_pin_attempts
++  add column guardian_id uuid references public.guardians (id) on delete set null;
+diff --git a/supabase/migrations/20260817120100_child_attendance_rpcs.sql b/supabase/migrations/20260817120100_child_attendance_rpcs.sql
+new file mode 100644
+index 0000000..a347a56
+--- /dev/null
++++ b/supabase/migrations/20260817120100_child_attendance_rpcs.sql
+@@ -0,0 +1,256 @@
++-- Kiosk RPCs for guardian PIN and child check-in/out. Mirrors
++-- admin_set_staff_pin / kiosk_identify_pin from 20260813090000 exactly:
++-- same lockout shape, same PIN regex gate, same candidate-loop-with-crypt
++-- pattern, same revoke/grant lines. No RPC in this codebase is granted to
++-- anon, and these are no exception -- the unauthenticated kiosk reaches
++-- them only through the device_token in the URL plus a service-role admin
++-- client inside a "use server" action.
++
++-- ── admin_set_guardian_pin: director assigns/resets a guardian's kiosk
++-- PIN. Same shape as admin_set_staff_pin -- the caller (a director-only
++-- server action) generates the plaintext PIN and displays it once; this
++-- function only ever hashes and stores it, and enforces tenant-wide
++-- uniqueness so the kiosk can identify a guardian by PIN alone. ─────────
++create function public.admin_set_guardian_pin(p_guardian_id uuid, p_pin text)
++returns void
++language plpgsql
++security definer
++set search_path = public, extensions
++as $$
++declare
++  v_tenant_id uuid;
++  v_target_tenant uuid;
++  v_collision boolean;
++begin
++  if public.current_role() not in ('director', 'platform_admin') then
++    raise exception 'not authorized';
++  end if;
++  if p_pin !~ '^[0-9]{4,6}$' then
++    raise exception 'PIN must be 4 to 6 digits';
++  end if;
++
++  v_tenant_id := public.current_tenant_id();
++
++  select tenant_id into v_target_tenant from public.guardians where id = p_guardian_id;
++  if v_target_tenant is null or v_target_tenant <> v_tenant_id then
++    raise exception 'not authorized';
++  end if;
++
++  select exists (
++    select 1
++    from public.guardian_pins gp
++    where gp.tenant_id = v_tenant_id
++      and gp.guardian_id <> p_guardian_id
++      and crypt(p_pin, gp.pin_hash) = gp.pin_hash
++  ) into v_collision;
++
++  if v_collision then
++    raise exception 'pin_taken';
++  end if;
++
++  insert into public.guardian_pins (guardian_id, tenant_id, pin_hash)
++  values (p_guardian_id, v_tenant_id, crypt(p_pin, gen_salt('bf')))
++  on conflict (guardian_id) do update
++    set pin_hash = excluded.pin_hash,
++        tenant_id = excluded.tenant_id,
++        failed_attempts = 0,
++        locked_until = null,
++        updated_at = now();
++end;
++$$;
++
++revoke all on function public.admin_set_guardian_pin(uuid, text) from public, anon;
++grant execute on function public.admin_set_guardian_pin(uuid, text) to authenticated;
++
++-- ── kiosk_identify_guardian_pin: identifies a guardian at a kiosk by PIN
++-- alone, same device-scoped lockout as kiosk_identify_pin (a wrong PIN
++-- doesn't reveal who it was meant for, so rate-limiting the terminal is
++-- the only sane defense). The one structural difference: staff are scoped
++-- by staff_locations, but guardians have no location link at all, so the
++-- candidate loop scopes by tenant PLUS having at least one active child at
++-- the device's location. Without that second clause this function would be
++-- a tenant-wide PIN oracle -- any guess would eventually match someone,
++-- just not necessarily a family with a child at this building.
++-- service_role only, called from kiosk server actions with no session. ──
++create function public.kiosk_identify_guardian_pin(p_device_token uuid, p_pin text)
++returns uuid
++language plpgsql
++security definer
++set search_path = public, extensions
++as $$
++declare
++  v_device record;
++  v_match uuid;
++  r record;
++  v_new_attempts int;
++begin
++  select id, tenant_id, location_id, is_active, failed_attempts, locked_until
++  into v_device
++  from public.kiosk_devices
++  where device_token = p_device_token
++  for update;
++
++  if not found or not v_device.is_active then
++    return null;
++  end if;
++
++  if v_device.locked_until is not null and v_device.locked_until > now() then
++    return null;
++  end if;
++
++  update public.kiosk_devices set last_seen_at = now() where id = v_device.id;
++
++  if p_pin !~ '^[0-9]{4,6}$' then
++    return null;
++  end if;
++
++  for r in (
++    select gp.guardian_id, gp.pin_hash
++    from public.guardian_pins gp
++    where gp.tenant_id = v_device.tenant_id
++      and exists (
++        select 1
++        from public.child_guardians cg
++        join public.children c on c.id = cg.child_id
++        where cg.guardian_id = gp.guardian_id
++          and c.location_id = v_device.location_id
++          and c.status = 'active'
++      )
++  ) loop
++    if crypt(p_pin, r.pin_hash) = r.pin_hash then
++      v_match := r.guardian_id;
++      exit;
++    end if;
++  end loop;
++
++  if v_match is not null then
++    update public.kiosk_devices
++    set failed_attempts = 0, locked_until = null
++    where id = v_device.id;
++
++    insert into public.kiosk_pin_attempts (device_id, guardian_id, outcome)
++    values (v_device.id, v_match, 'success');
++
++    return v_match;
++  end if;
++
++  v_new_attempts := v_device.failed_attempts + 1;
++
++  if v_new_attempts >= 5 then
++    update public.kiosk_devices
++    set failed_attempts = 0, locked_until = now() + interval '15 minutes'
++    where id = v_device.id;
++    insert into public.kiosk_pin_attempts (device_id, outcome) values (v_device.id, 'locked');
++  else
++    update public.kiosk_devices set failed_attempts = v_new_attempts where id = v_device.id;
++    insert into public.kiosk_pin_attempts (device_id, outcome) values (v_device.id, 'invalid_pin');
++  end if;
++
++  return null;
++end;
++$$;
++
++revoke all on function public.kiosk_identify_guardian_pin(uuid, text) from public, anon, authenticated;
++grant execute on function public.kiosk_identify_guardian_pin(uuid, text) to service_role;
++
++-- ── kiosk_check_child_in: records a visit start. Idempotent by design --
++-- a second tap (double-tap, flaky network retry) hits the partial unique
++-- index on open visits and this function turns it into a no-op instead of
++-- an error, returning the existing visit's id unchanged. Exactly one of
++-- guardian/staff must vouch for the child, same rule the table's own
++-- child_attendance_in_actor constraint enforces -- checked here first so
++-- the kiosk gets a readable error instead of a raw constraint violation.
++-- No extensions needed (no crypto in this function), unlike the PIN
++-- functions above. service_role only. ────────────────────────────────────
++create function public.kiosk_check_child_in(p_child_id uuid, p_room_id uuid, p_guardian_id uuid, p_staff_id uuid)
++returns uuid
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_child record;
++  v_room_id uuid;
++  v_existing_id uuid;
++  v_new_id uuid;
++begin
++  if num_nonnulls(p_guardian_id, p_staff_id) <> 1 then
++    raise exception 'exactly one of guardian or staff must check the child in';
++  end if;
++
++  select id, tenant_id, location_id, room_id, status
++  into v_child
++  from public.children
++  where id = p_child_id;
++
++  if not found or v_child.status <> 'active' then
++    raise exception 'child not active';
++  end if;
++
++  v_room_id := coalesce(p_room_id, v_child.room_id);
++
++  select id into v_existing_id
++  from public.child_attendance
++  where child_id = p_child_id and checked_out_at is null;
++
++  if v_existing_id is not null then
++    return v_existing_id;
++  end if;
++
++  insert into public.child_attendance (
++    tenant_id, location_id, child_id, room_id, in_by_guardian_id, in_by_staff_id
++  ) values (
++    v_child.tenant_id, v_child.location_id, p_child_id, v_room_id, p_guardian_id, p_staff_id
++  )
++  returning id into v_new_id;
++
++  return v_new_id;
++end;
++$$;
++
++revoke all on function public.kiosk_check_child_in(uuid, uuid, uuid, uuid) from public, anon, authenticated;
++grant execute on function public.kiosk_check_child_in(uuid, uuid, uuid, uuid) to service_role;
++
++-- ── kiosk_check_child_out: closes the open visit. `for update` locks the
++-- open-visit row for the transaction so two concurrent check-out taps
++-- can't both succeed against the same visit -- the second sees the row
++-- already closed and hits no_open_visit instead of racing past it, same
++-- reasoning as the `for update` on kiosk_devices above. Raises a
++-- distinguishable no_open_visit exception (rather than silently no-op'ing)
++-- because, unlike check-in, a phantom checkout is a parent-facing error
++-- worth surfacing, not a retry to swallow. service_role only. ───────────
++create function public.kiosk_check_child_out(p_child_id uuid, p_guardian_id uuid, p_staff_id uuid, p_override_reason text)
++returns uuid
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_visit_id uuid;
++begin
++  if num_nonnulls(p_guardian_id, p_staff_id) <> 1 then
++    raise exception 'exactly one of guardian or staff must check the child out';
++  end if;
++
++  select id into v_visit_id
++  from public.child_attendance
++  where child_id = p_child_id and checked_out_at is null
++  for update;
++
++  if v_visit_id is null then
++    raise exception 'no_open_visit';
++  end if;
++
++  update public.child_attendance
++  set checked_out_at = now(),
++      out_by_guardian_id = p_guardian_id,
++      out_by_staff_id = p_staff_id,
++      out_override_reason = p_override_reason
++  where id = v_visit_id;
++
++  return v_visit_id;
++end;
++$$;
++
++revoke all on function public.kiosk_check_child_out(uuid, uuid, uuid, text) from public, anon, authenticated;
++grant execute on function public.kiosk_check_child_out(uuid, uuid, uuid, text) to service_role;
+diff --git a/supabase/migrations/20260817120200_kiosk_guardian_sessions.sql b/supabase/migrations/20260817120200_kiosk_guardian_sessions.sql
+new file mode 100644
+index 0000000..ad153f7
+--- /dev/null
++++ b/supabase/migrations/20260817120200_kiosk_guardian_sessions.sql
+@@ -0,0 +1,18 @@
++-- kiosk_sessions widened for guardian check-in/out. It was staff-only
++-- (profile_id not null references profiles), but a guardian who PINs in at
++-- the kiosk has no profiles row to put there -- they authenticate through
++-- guardian_pins instead. Rather than let the FK force a fake profile,
++-- profile_id becomes nullable and a parallel guardian_id is added, exactly
++-- the same shape as kiosk_pin_attempts.guardian_id in the previous
++-- migration. Exactly one of the two must be set: a kiosk session identifies
++-- either a staff member or a guardian, never both and never neither.
++
++alter table public.kiosk_sessions
++  alter column profile_id drop not null;
++
++alter table public.kiosk_sessions
++  add column guardian_id uuid references public.guardians (id) on delete cascade;
++
++alter table public.kiosk_sessions
++  add constraint kiosk_sessions_actor
++    check (num_nonnulls(profile_id, guardian_id) = 1);

@@ -25,6 +25,13 @@ export interface AttentionInput {
   expiring: { daysUntil: number }[];
   aging: { daysOverdue: number; amount: number }[];
   openShifts: { needsCorrection: boolean }[];
+  /**
+   * Child visits still open after 12 hours. Already filtered by the caller
+   * (`getPresentChildren` applies `isStaleVisit`), unlike `openShifts`, which
+   * carries its own flag -- the staleness rule for children lives in
+   * `child-visits.ts` beside the visit model it describes.
+   */
+  staleVisits: { childId: string }[];
 }
 
 const CRITICAL_EXPIRY_DAYS = 30;
@@ -70,6 +77,27 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
       value: String(count),
       href: "/staff",
       cta: "See credentials",
+    });
+  }
+
+  // A child still checked in from yesterday. Deliberately placed above the
+  // money branch: both are `warn`, the sort below is stable, and only three
+  // items survive the slice -- so insertion order is what decides which
+  // warning gets dropped. An attendance record that says a child is in the
+  // building when they went home is the artifact a licensing visit reads;
+  // overdue tuition is a phone call.
+  if (input.staleVisits.length > 0) {
+    const count = input.staleVisits.length;
+    items.push({
+      id: "staleVisits",
+      severity: "warn",
+      claim:
+        count === 1
+          ? "A child is still checked in from earlier"
+          : `${count} children are still checked in from earlier`,
+      value: String(count),
+      href: "/attendance/children",
+      cta: "Open the board",
     });
   }
 
