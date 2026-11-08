@@ -54,7 +54,7 @@ export const INTENSIVE = {
    * calendar file for the session that already happened must keep working for
    * the people who attended it.
    */
-  registration: "selling" as "selling" | "waitlist",
+  registration: "waitlist" as "selling" | "waitlist",
 
   /** Stands in for the date everywhere while registration is "waitlist". */
   nextDateLabel: "Date to be announced",
@@ -319,7 +319,8 @@ export function buildFaqs(): Faq[] {
       },
       {
         question: "What will it cost?",
-        answer: `The last session was $${INTENSIVE.price} for five hours, materials included. Pricing for the next date goes out with the announcement.`,
+        answer:
+          "Pricing for the next date goes out with the announcement. Everyone on the waitlist hears it first.",
       },
       {
         question: "Where is it held?",
