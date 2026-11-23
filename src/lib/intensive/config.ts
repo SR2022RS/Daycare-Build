@@ -171,6 +171,8 @@ export const FUNNEL_HOSTS = [
   // Works while DNS propagates, and gives us a stable host for exercising
   // the funnel without touching a live domain.
   "daycareownerintensive.vercel.app",
+  "thedaycareintensive.vercel.app",
+  "daycare-owner-intensive.vercel.app",
 ];
 
 /**
