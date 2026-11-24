@@ -12,6 +12,7 @@ export type AppRole = "platform_admin" | "director" | "staff";
  * child" is the same shape of fact as "may".
  */
 export type ChildContactKind = "emergency" | "pickup_allowed" | "pickup_denied";
+export type AllergySeverity = "mild" | "moderate" | "severe" | "life_threatening";
 export type TrainingProgressStatus =
   "not_started" | "in_progress" | "completed";
 export type WriteUpSeverity = "minor" | "moderate" | "severe";
@@ -1377,6 +1378,76 @@ export interface Database {
           },
         ];
       };
+      child_health: {
+        Row: {
+          child_id: string;
+          tenant_id: string;
+          has_asthma: boolean;
+          asthma_notes: string | null;
+          milk_alternative: string | null;
+          dietary_restrictions: string | null;
+          health_notes: string | null;
+          allergy_notes: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          child_id: string;
+          tenant_id: string;
+          has_asthma?: boolean;
+          asthma_notes?: string | null;
+          milk_alternative?: string | null;
+          dietary_restrictions?: string | null;
+          health_notes?: string | null;
+          allergy_notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["child_health"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "child_health_child_tenant_fkey";
+            columns: ["child_id", "tenant_id"];
+            isOneToOne: true;
+            referencedRelation: "children";
+            referencedColumns: ["id", "tenant_id"];
+          },
+        ];
+      };
+      child_allergies: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          child_id: string;
+          allergen: string;
+          severity: AllergySeverity;
+          reaction: string | null;
+          action_plan: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          child_id: string;
+          allergen: string;
+          severity?: AllergySeverity;
+          reaction?: string | null;
+          action_plan?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["child_allergies"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "child_allergies_child_tenant_fkey";
+            columns: ["child_id", "tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "children";
+            referencedColumns: ["id", "tenant_id"];
+          },
+        ];
+      };
       intensive_registrations: {
         Row: {
           id: string;
@@ -1691,6 +1762,7 @@ export interface Database {
       app_role: AppRole;
       credential_type: CredentialType;
       child_status: ChildStatus;
+      allergy_severity: AllergySeverity;
       funding_type: FundingType;
       child_schedule: ChildSchedule;
       billing_cadence: BillingCadence;

@@ -5,7 +5,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createChild } from "@/lib/children/actions";
 import { CADENCE_LABELS, FUNDING_TYPE_LABELS, SCHEDULE_LABELS } from "@/lib/children/labels";
 import { ChildrenTable, type ChildRow } from "@/components/children/children-table";
+import { AllergyBadge, AsthmaBadge } from "@/components/children/health-badges";
 import { StaffChildForm } from "@/components/children/staff-child-form";
+import { loadHealthAlerts } from "@/lib/children/health-data";
 
 export default async function ChildrenPage() {
   const session = await verifySession();
@@ -36,8 +38,15 @@ export default async function ChildrenPage() {
     guardianCountByChild.set(row.child_id, (guardianCountByChild.get(row.child_id) ?? 0) + 1);
   }
 
+  const alerts = await loadHealthAlerts(
+    supabase,
+    session.profile.tenantId,
+    (children ?? []).map((c) => c.id),
+  );
+
   const rows: ChildRow[] = (children ?? []).map((c) => {
     const loc = Array.isArray(c.locations) ? c.locations[0] : c.locations;
+    const alert = alerts.ok ? alerts.alerts.get(c.id) : undefined;
     return {
       id: c.id,
       name: c.full_name,
@@ -47,6 +56,8 @@ export default async function ChildrenPage() {
       fundingType: c.funding_type,
       weeklyRate: c.weekly_rate,
       guardianCount: guardianCountByChild.get(c.id) ?? 0,
+      hasAllergy: alert?.hasAllergy ?? false,
+      hasAsthma: alert?.hasAsthma ?? false,
     };
   });
 
@@ -54,6 +65,7 @@ export default async function ChildrenPage() {
 
   return (
     <div className="max-w-[1240px]">
+      {!alerts.ok && <AllergyLoadWarning />}
       <ChildrenTable rows={rows} locations={locationNames} />
 
       <details className="group mt-4 max-w-2xl overflow-hidden rounded-xl border border-gray-200 bg-white">
@@ -222,16 +234,28 @@ async function StaffChildrenList({ tenantId }: { tenantId: string }) {
       .order("name"),
   ]);
 
-  const rows = (children ?? []).map((c) => ({
-    id: c.child_id,
-    name: c.full_name,
-    classroom: c.classroom,
-    locationName: c.location_name ?? "Unassigned",
-    overdue: c.balance_status === "overdue",
-  }));
+  const alerts = await loadHealthAlerts(
+    supabase,
+    tenantId,
+    (children ?? []).map((c) => c.child_id),
+  );
+
+  const rows = (children ?? []).map((c) => {
+    const alert = alerts.ok ? alerts.alerts.get(c.child_id) : undefined;
+    return {
+      id: c.child_id,
+      name: c.full_name,
+      classroom: c.classroom,
+      locationName: c.location_name ?? "Unassigned",
+      overdue: c.balance_status === "overdue",
+      hasAllergy: alert?.hasAllergy ?? false,
+      hasAsthma: alert?.hasAsthma ?? false,
+    };
+  });
 
   return (
     <div className="max-w-[720px]">
+      {!alerts.ok && <AllergyLoadWarning />}
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
         <div className="border-b border-gray-100 px-4.5 py-3.5">
           <h1 className="font-serif text-[14.5px] font-semibold text-gray-900">Children</h1>
@@ -244,7 +268,11 @@ async function StaffChildrenList({ tenantId }: { tenantId: string }) {
                 className="flex items-center justify-between gap-3 px-4.5 py-3 hover:bg-gray-50"
               >
                 <div className="min-w-0">
-                  <div className="truncate text-[13.5px] font-semibold text-gray-900">{r.name}</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="truncate text-[13.5px] font-semibold text-gray-900">{r.name}</div>
+                    {r.hasAllergy && <AllergyBadge />}
+                    {r.hasAsthma && <AsthmaBadge />}
+                  </div>
                   <div className="truncate text-[11.5px] text-gray-400">
                     {r.classroom || "No classroom"} &middot; {r.locationName}
                   </div>
@@ -283,5 +311,13 @@ async function StaffChildrenList({ tenantId }: { tenantId: string }) {
         </div>
       </details>
     </div>
+  );
+}
+
+function AllergyLoadWarning() {
+  return (
+    <p className="mb-3 rounded-md bg-amber-50 px-3.5 py-2.5 text-[12.5px] text-amber-900">
+      Allergy alerts could not be loaded. A missing badge does not mean a child has no allergies.
+    </p>
   );
 }

@@ -2,8 +2,10 @@ import Link from "next/link";
 
 import { requireRole } from "@/lib/auth/dal";
 import { age } from "@/lib/children/labels";
+import { loadHealthAlerts } from "@/lib/children/health-data";
 import { getWaitlist } from "@/lib/rooms/queries";
 import { createClient } from "@/lib/supabase/server";
+import { AllergyBadge, AsthmaBadge } from "@/components/children/health-badges";
 import { EnrollForm } from "@/components/rooms/enroll-form";
 
 export default async function WaitlistPage() {
@@ -12,6 +14,11 @@ export default async function WaitlistPage() {
 
   const groups = await getWaitlist(supabase, session.profile.tenantId);
   const totalWaiting = groups.reduce((sum, g) => sum + g.waiting.length, 0);
+  const alerts = await loadHealthAlerts(
+    supabase,
+    session.profile.tenantId,
+    groups.flatMap((group) => group.waiting.map((child) => child.id)),
+  );
 
   return (
     <div className="max-w-[1000px]">
@@ -30,6 +37,12 @@ export default async function WaitlistPage() {
           Manage rooms &rarr;
         </Link>
       </div>
+
+      {!alerts.ok && (
+        <p className="mb-3 rounded-md bg-amber-50 px-3.5 py-2.5 text-[12.5px] text-amber-900">
+          Allergy alerts could not be loaded. A missing badge does not mean a child has no allergies.
+        </p>
+      )}
 
       <div className="flex flex-col gap-4">
         {groups.map((g) => (
@@ -72,12 +85,16 @@ export default async function WaitlistPage() {
                     {i + 1}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <Link
-                      href={`/children/${c.id}`}
-                      className="text-[13.5px] font-semibold text-gray-900 hover:text-[var(--brand-primary)]"
-                    >
-                      {c.fullName}
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Link
+                        href={`/children/${c.id}`}
+                        className="text-[13.5px] font-semibold text-gray-900 hover:text-[var(--brand-primary)]"
+                      >
+                        {c.fullName}
+                      </Link>
+                      {alerts.ok && alerts.alerts.get(c.id)?.hasAllergy && <AllergyBadge />}
+                      {alerts.ok && alerts.alerts.get(c.id)?.hasAsthma && <AsthmaBadge />}
+                    </div>
                     <div className="mt-0.5 text-[11.5px] text-gray-400">
                       {age(c.dob)}
                       {" · "}

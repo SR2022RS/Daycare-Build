@@ -1,6 +1,8 @@
 import { verifySession } from "@/lib/auth/dal";
 import { getPresentChildren } from "@/lib/attendance/child-presence";
+import { loadHealthAlerts } from "@/lib/children/health-data";
 import { createClient } from "@/lib/supabase/server";
+import { AllergyBadge, AsthmaBadge } from "@/components/children/health-badges";
 import { Panel, PanelEmpty, PanelHeader } from "@/components/ui/panel";
 import { Pill } from "@/components/ui/pill";
 
@@ -19,6 +21,9 @@ export default async function ChildrenPresentPage() {
 
   const board = await getPresentChildren(supabase, session.profile.tenantId);
   const isStaff = session.profile.role === "staff";
+  const presentIds = board.rooms.flatMap((group) => group.children.map((child) => child.childId));
+  const alerts = await loadHealthAlerts(supabase, session.profile.tenantId, presentIds);
+  const alertFor = (childId: string) => (alerts.ok ? alerts.alerts.get(childId) : undefined);
 
   return (
     <div className="max-w-[1000px]">
@@ -30,6 +35,12 @@ export default async function ChildrenPresentPage() {
         </p>
       </div>
 
+      {!alerts.ok && (
+        <p className="mb-3 rounded-md bg-amber-50 px-3.5 py-2.5 text-[12.5px] text-amber-900">
+          Allergy alerts could not be loaded. A missing badge does not mean a child has no allergies.
+        </p>
+      )}
+
       {board.stale.length > 0 && (
         <Panel className="mb-4 border-amber-200">
           <PanelHeader
@@ -40,7 +51,11 @@ export default async function ChildrenPresentPage() {
           <ul className="divide-y divide-gray-100">
             {board.stale.map((child) => (
               <li key={child.visitId} className="flex items-center justify-between gap-3 px-4.5 py-2.5">
-                <span className="text-[13.5px] text-gray-900">{child.fullName}</span>
+                <span className="flex flex-wrap items-center gap-1.5 text-[13.5px] text-gray-900">
+                  {child.fullName}
+                  {alertFor(child.childId)?.hasAllergy && <AllergyBadge />}
+                  {alertFor(child.childId)?.hasAsthma && <AsthmaBadge />}
+                </span>
                 <span className="text-[12.5px] text-gray-500 tabular-nums">
                   {child.roomName} &middot; {child.hoursPresent}h
                 </span>
@@ -74,7 +89,11 @@ export default async function ChildrenPresentPage() {
               <ul className="divide-y divide-gray-100">
                 {group.children.map((child) => (
                   <li key={child.visitId} className="flex items-center justify-between gap-3 px-4.5 py-2.5">
-                    <span className="text-[13.5px] text-gray-900">{child.fullName}</span>
+                    <span className="flex flex-wrap items-center gap-1.5 text-[13.5px] text-gray-900">
+                      {child.fullName}
+                      {alertFor(child.childId)?.hasAllergy && <AllergyBadge />}
+                      {alertFor(child.childId)?.hasAsthma && <AsthmaBadge />}
+                    </span>
                     {/* Elapsed hours rather than an arrival clock time: this
                         renders on the server, whose timezone is not the
                         centre's, and a wall-clock time that is four hours out

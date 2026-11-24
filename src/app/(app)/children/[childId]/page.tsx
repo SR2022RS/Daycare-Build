@@ -6,6 +6,8 @@ import { verifySession } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
 import { addGuardian, removeGuardian, setGuardianPayer, updateChild } from "@/lib/children/actions";
 import { ChildContacts, type ChildContact } from "@/components/children/child-contacts";
+import { ChildHealthSection } from "@/components/children/child-health-section";
+import { AllergyBadge, AllergyUnknownBadge, AsthmaBadge } from "@/components/children/health-badges";
 import { StaffChildForm } from "@/components/children/staff-child-form";
 import { StaffGuardians, type GuardianRow } from "@/components/children/staff-guardian-form";
 import { CADENCE_LABELS, FUNDING_TYPE_LABELS, SCHEDULE_LABELS } from "@/lib/children/labels";
@@ -13,13 +15,17 @@ import { ResetGuardianPinForm } from "@/components/children/reset-guardian-pin-f
 import { createFormSend } from "@/lib/forms/actions";
 import { FORM_LIBRARY, formTitle } from "@/lib/forms/definitions";
 import { getSiteUrl } from "@/lib/site-url";
+import { canEditChildHealth } from "@/lib/children/health-model";
+import { loadChildHealth, profileHasAllergy } from "@/lib/children/health-data";
 
 export default async function ChildDetailPage({ params }: { params: Promise<{ childId: string }> }) {
   const { childId } = await params;
   const session = await verifySession();
 
+  const canEdit = canEditChildHealth(session.profile.role, session.profile.isSiteLead);
+
   if (session.profile.role === "staff") {
-    return <StaffChildCard childId={childId} tenantId={session.profile.tenantId} />;
+    return <StaffChildCard childId={childId} tenantId={session.profile.tenantId} canEdit={canEdit} />;
   }
 
   const supabase = await createClient();
@@ -55,12 +61,20 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
     notFound();
   }
 
-  const { data: contactRows } = await supabase
-    .from("child_contacts")
-    .select("id, kind, full_name, relationship, phone, note")
-    .eq("child_id", childId)
-    .eq("tenant_id", session.profile.tenantId)
-    .order("created_at");
+  const [{ data: contactRows }, { data: sendRows }, healthLoad] = await Promise.all([
+    supabase
+      .from("child_contacts")
+      .select("id, kind, full_name, relationship, phone, note")
+      .eq("child_id", childId)
+      .eq("tenant_id", session.profile.tenantId)
+      .order("created_at"),
+    supabase
+      .from("form_sends")
+      .select("id, form_keys, status, token, sent_at, completed_at, guardians(full_name)")
+      .eq("child_id", childId)
+      .order("sent_at", { ascending: false }),
+    loadChildHealth(supabase, session.profile.tenantId, childId),
+  ]);
 
   const contacts: ChildContact[] = (contactRows ?? []).map((row) => ({
     id: row.id,
@@ -70,12 +84,6 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
     phone: row.phone,
     note: row.note,
   }));
-
-  const { data: sendRows } = await supabase
-    .from("form_sends")
-    .select("id, form_keys, status, token, sent_at, completed_at, guardians(full_name)")
-    .eq("child_id", childId)
-    .order("sent_at", { ascending: false });
 
   const sends = (sendRows ?? []).map((row) => {
     const guardian = Array.isArray(row.guardians) ? row.guardians[0] : row.guardians;
@@ -116,7 +124,10 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
             .toUpperCase()}
         </span>
         <div className="min-w-0 flex-1">
-          <h1 className="font-serif text-xl font-semibold text-gray-900">{child.full_name}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="font-serif text-xl font-semibold text-gray-900">{child.full_name}</h1>
+            <HealthHeaderBadges load={healthLoad} />
+          </div>
           <p className="mt-1 text-[13px] text-gray-500">
             DOB {child.dob} &middot; {FUNDING_TYPE_LABELS[child.funding_type]} &middot;{" "}
             {SCHEDULE_LABELS[child.schedule]}
@@ -124,7 +135,14 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
         </div>
       </div>
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.2fr_1fr]">
+      <ChildHealthSection
+        childId={child.id}
+        canEdit={canEdit}
+        unavailable={healthLoad.status === "unavailable"}
+        health={healthLoad.status === "ok" ? healthLoad.health : null}
+      />
+
+      <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.2fr_1fr]">
         <section className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <div className="border-b border-gray-100 px-4.5 py-3.5">
             <h2 className="font-serif text-[14.5px] font-semibold text-gray-900">Child &amp; billing details</h2>
@@ -496,11 +514,40 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
  * staff by RLS. The balance badge still comes from `child_balance_status`,
  * which reports *that* a family is behind without saying by how much.
  */
-async function StaffChildCard({ childId, tenantId }: { childId: string; tenantId: string }) {
+function HealthHeaderBadges({
+  load,
+}: {
+  load: Awaited<ReturnType<typeof loadChildHealth>>;
+}) {
+  if (load.status === "unavailable") return <AllergyUnknownBadge />;
+  return (
+    <>
+      {profileHasAllergy(load.health) && <AllergyBadge />}
+      {load.health.hasAsthma && <AsthmaBadge />}
+    </>
+  );
+}
+
+async function StaffChildCard({
+  childId,
+  tenantId,
+  canEdit,
+}: {
+  childId: string;
+  tenantId: string;
+  canEdit: boolean;
+}) {
   const supabase = await createClient();
 
-  const [{ data: child }, { data: status }, { data: guardianRows }, { data: contactRows }, { data: locations }, { data: rooms }] =
-    await Promise.all([
+  const [
+    { data: child },
+    { data: status },
+    { data: guardianRows },
+    { data: contactRows },
+    { data: locations },
+    { data: rooms },
+    healthLoad,
+  ] = await Promise.all([
       supabase
         .from("child_people")
         .select(
@@ -538,6 +585,7 @@ async function StaffChildCard({ childId, tenantId }: { childId: string; tenantId
         .eq("tenant_id", tenantId)
         .eq("is_active", true)
         .order("name"),
+      loadChildHealth(supabase, tenantId, childId),
     ]);
 
   if (!child) {
@@ -576,7 +624,10 @@ async function StaffChildCard({ childId, tenantId }: { childId: string; tenantId
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
         <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4.5 py-3.5">
           <div className="min-w-0">
-            <h1 className="font-serif text-[14.5px] font-semibold text-gray-900">{child.full_name}</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="font-serif text-[14.5px] font-semibold text-gray-900">{child.full_name}</h1>
+              <HealthHeaderBadges load={healthLoad} />
+            </div>
             <div className="mt-0.5 text-[11.5px] text-gray-400">
               {child.classroom || "No classroom"} &middot; {child.location_name ?? "\u2014"}
             </div>
@@ -589,7 +640,16 @@ async function StaffChildCard({ childId, tenantId }: { childId: string; tenantId
             {overdue ? "Overdue" : "Current"}
           </span>
         </div>
+      </div>
 
+      <ChildHealthSection
+        childId={child.child_id}
+        canEdit={canEdit}
+        unavailable={healthLoad.status === "unavailable"}
+        health={healthLoad.status === "ok" ? healthLoad.health : null}
+      />
+
+      <div className="mt-4 overflow-hidden rounded-xl border border-gray-200 bg-white">
         <StaffChildForm
           locations={locations ?? []}
           rooms={rooms ?? []}
