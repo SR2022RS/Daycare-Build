@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { addGuardian, removeGuardian, setGuardianPayer, updateChild } from "@/lib/children/actions";
 import { ChildContacts, type ChildContact } from "@/components/children/child-contacts";
 import { ChildAccidents } from "@/components/accidents/child-accidents";
+import { ChildUniforms } from "@/components/uniforms/child-uniforms";
 import { ChildHealthSection } from "@/components/children/child-health-section";
 import { AllergyBadge, AllergyUnknownBadge, AsthmaBadge } from "@/components/children/health-badges";
 import { StaffChildForm } from "@/components/children/staff-child-form";
@@ -18,6 +19,8 @@ import { FORM_LIBRARY, formTitle } from "@/lib/forms/definitions";
 import { getSiteUrl } from "@/lib/site-url";
 import { canEditChildHealth } from "@/lib/children/health-model";
 import { loadChildAccidents } from "@/lib/accidents/queries";
+import { countInWindow, loadChildUniformHistory, loadUniformSettings } from "@/lib/uniforms/queries";
+import { campusToday, currentStepSummary } from "@/lib/uniforms/steps";
 import { loadChildHealth, profileHasAllergy } from "@/lib/children/health-data";
 
 export default async function ChildDetailPage({ params }: { params: Promise<{ childId: string }> }) {
@@ -63,7 +66,8 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
     notFound();
   }
 
-  const [{ data: contactRows }, { data: sendRows }, healthLoad, accidents] = await Promise.all([
+  const [{ data: contactRows }, { data: sendRows }, healthLoad, accidents, uniformHistory, uniformSettings] =
+    await Promise.all([
     supabase
       .from("child_contacts")
       .select("id, kind, full_name, relationship, phone, note")
@@ -77,6 +81,8 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
       .order("sent_at", { ascending: false }),
     loadChildHealth(supabase, session.profile.tenantId, childId),
     loadChildAccidents(supabase, session.profile.tenantId, childId),
+    loadChildUniformHistory(supabase, session.profile.tenantId, childId),
+    loadUniformSettings(supabase, session.profile.tenantId),
   ]);
 
   const contacts: ChildContact[] = (contactRows ?? []).map((row) => ({
@@ -148,6 +154,16 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
       <ChildAccidents
         unavailable={!accidents.ok}
         reports={accidents.ok ? accidents.reports : []}
+      />
+
+      <ChildUniforms
+        unavailable={!uniformHistory.ok}
+        summary={
+          uniformHistory.ok
+            ? currentStepSummary(countInWindow(uniformHistory.rows, uniformSettings, campusToday()))
+            : ""
+        }
+        items={uniformHistory.ok ? uniformHistory.rows : []}
       />
 
       <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.2fr_1fr]">
@@ -556,6 +572,8 @@ async function StaffChildCard({
     { data: rooms },
     healthLoad,
     accidents,
+    uniformHistory,
+    uniformSettings,
   ] = await Promise.all([
       supabase
         .from("child_people")
@@ -596,6 +614,8 @@ async function StaffChildCard({
         .order("name"),
       loadChildHealth(supabase, tenantId, childId),
       loadChildAccidents(supabase, tenantId, childId),
+      loadChildUniformHistory(supabase, tenantId, childId),
+      loadUniformSettings(supabase, tenantId),
     ]);
 
   if (!child) {
@@ -660,6 +680,16 @@ async function StaffChildCard({
       />
 
       <ChildAccidents unavailable={!accidents.ok} reports={accidents.ok ? accidents.reports : []} />
+
+      <ChildUniforms
+        unavailable={!uniformHistory.ok}
+        summary={
+          uniformHistory.ok
+            ? currentStepSummary(countInWindow(uniformHistory.rows, uniformSettings, campusToday()))
+            : ""
+        }
+        items={uniformHistory.ok ? uniformHistory.rows : []}
+      />
 
       <div className="mt-4 overflow-hidden rounded-xl border border-gray-200 bg-white">
         <StaffChildForm
