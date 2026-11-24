@@ -48,7 +48,10 @@ export function getNavSections(role: AppRole): NavSection[] {
       },
       {
         label: "Safety",
-        items: [{ title: "Incident reports", href: "/incidents", icon: ShieldAlert }],
+        items: [
+          { title: "Incident reports", href: "/incidents", icon: ShieldAlert },
+          { title: "Accident reports", href: "/accidents", icon: ShieldAlert },
+        ],
       },
       {
         label: "Learning",
@@ -77,6 +80,7 @@ export function getNavSections(role: AppRole): NavSection[] {
         { title: "My coursework", href: "/training", icon: BookOpen },
         { title: "Time clock", href: "/attendance", icon: Calendar },
         { title: "Incident reports", href: "/incidents", icon: ShieldAlert },
+        { title: "Accident reports", href: "/accidents", icon: ShieldAlert },
         { title: "Children", href: "/children", icon: Baby },
         // Naming and sizing a room is not a financial decision, and making a
         // director do it is how the rooms never got entered at all.

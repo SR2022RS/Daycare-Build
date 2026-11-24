@@ -6,6 +6,7 @@ import { verifySession } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
 import { addGuardian, removeGuardian, setGuardianPayer, updateChild } from "@/lib/children/actions";
 import { ChildContacts, type ChildContact } from "@/components/children/child-contacts";
+import { ChildAccidents } from "@/components/accidents/child-accidents";
 import { ChildHealthSection } from "@/components/children/child-health-section";
 import { AllergyBadge, AllergyUnknownBadge, AsthmaBadge } from "@/components/children/health-badges";
 import { StaffChildForm } from "@/components/children/staff-child-form";
@@ -16,6 +17,7 @@ import { createFormSend } from "@/lib/forms/actions";
 import { FORM_LIBRARY, formTitle } from "@/lib/forms/definitions";
 import { getSiteUrl } from "@/lib/site-url";
 import { canEditChildHealth } from "@/lib/children/health-model";
+import { loadChildAccidents } from "@/lib/accidents/queries";
 import { loadChildHealth, profileHasAllergy } from "@/lib/children/health-data";
 
 export default async function ChildDetailPage({ params }: { params: Promise<{ childId: string }> }) {
@@ -61,7 +63,7 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
     notFound();
   }
 
-  const [{ data: contactRows }, { data: sendRows }, healthLoad] = await Promise.all([
+  const [{ data: contactRows }, { data: sendRows }, healthLoad, accidents] = await Promise.all([
     supabase
       .from("child_contacts")
       .select("id, kind, full_name, relationship, phone, note")
@@ -74,6 +76,7 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
       .eq("child_id", childId)
       .order("sent_at", { ascending: false }),
     loadChildHealth(supabase, session.profile.tenantId, childId),
+    loadChildAccidents(supabase, session.profile.tenantId, childId),
   ]);
 
   const contacts: ChildContact[] = (contactRows ?? []).map((row) => ({
@@ -140,6 +143,11 @@ export default async function ChildDetailPage({ params }: { params: Promise<{ ch
         canEdit={canEdit}
         unavailable={healthLoad.status === "unavailable"}
         health={healthLoad.status === "ok" ? healthLoad.health : null}
+      />
+
+      <ChildAccidents
+        unavailable={!accidents.ok}
+        reports={accidents.ok ? accidents.reports : []}
       />
 
       <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.2fr_1fr]">
@@ -547,6 +555,7 @@ async function StaffChildCard({
     { data: locations },
     { data: rooms },
     healthLoad,
+    accidents,
   ] = await Promise.all([
       supabase
         .from("child_people")
@@ -586,6 +595,7 @@ async function StaffChildCard({
         .eq("is_active", true)
         .order("name"),
       loadChildHealth(supabase, tenantId, childId),
+      loadChildAccidents(supabase, tenantId, childId),
     ]);
 
   if (!child) {
@@ -648,6 +658,8 @@ async function StaffChildCard({
         unavailable={healthLoad.status === "unavailable"}
         health={healthLoad.status === "ok" ? healthLoad.health : null}
       />
+
+      <ChildAccidents unavailable={!accidents.ok} reports={accidents.ok ? accidents.reports : []} />
 
       <div className="mt-4 overflow-hidden rounded-xl border border-gray-200 bg-white">
         <StaffChildForm
