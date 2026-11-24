@@ -9,6 +9,7 @@ import {
   Baby,
   UserCircle,
   ShieldAlert,
+  Shirt,
   BookMarked,
   LifeBuoy,
   Receipt,
@@ -51,6 +52,7 @@ export function getNavSections(role: AppRole): NavSection[] {
         items: [
           { title: "Incident reports", href: "/incidents", icon: ShieldAlert },
           { title: "Accident reports", href: "/accidents", icon: ShieldAlert },
+          { title: "Uniforms", href: "/uniforms", icon: Shirt },
         ],
       },
       {
@@ -81,6 +83,7 @@ export function getNavSections(role: AppRole): NavSection[] {
         { title: "Time clock", href: "/attendance", icon: Calendar },
         { title: "Incident reports", href: "/incidents", icon: ShieldAlert },
         { title: "Accident reports", href: "/accidents", icon: ShieldAlert },
+        { title: "Uniforms", href: "/uniforms", icon: Shirt },
         { title: "Children", href: "/children", icon: Baby },
         // Naming and sizing a room is not a financial decision, and making a
         // director do it is how the rooms never got entered at all.

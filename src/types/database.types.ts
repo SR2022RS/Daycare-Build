@@ -31,6 +31,8 @@ export type ChildSchedule = "full_time" | "part_time";
 export type BillingCadence = "weekly" | "biweekly" | "monthly";
 export type IncidentStatus = "filed" | "signed" | "parent_notified";
 export type AccidentStatus = "open" | "reviewed" | "closed";
+export type UniformReset = "school_year" | "calendar_year" | "never";
+export type UniformStep = "verbal" | "written" | "fee";
 export type ParentNotifyMethod = "phone" | "in_person" | "message";
 export type SopAudience = "all" | "staff" | "site_lead";
 export type ContentBlockType = "video" | "text" | "file";
@@ -959,6 +961,71 @@ export interface Database {
           },
         ];
       };
+      uniform_settings: {
+        Row: {
+          tenant_id: string;
+          reset_mode: UniformReset;
+          school_year_start_month: number;
+          school_year_start_day: number;
+          updated_at: string;
+        };
+        Insert: {
+          tenant_id: string;
+          reset_mode?: UniformReset;
+          school_year_start_month?: number;
+          school_year_start_day?: number;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["uniform_settings"]["Insert"]>;
+        Relationships: [];
+      };
+      uniform_warnings: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          location_id: string;
+          child_id: string;
+          filed_by: string;
+          staff_name: string;
+          occurred_on: string;
+          missing_item: string;
+          note: string | null;
+          step: UniformStep;
+          fee_due: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          location_id: string;
+          child_id: string;
+          filed_by: string;
+          staff_name: string;
+          occurred_on: string;
+          missing_item: string;
+          note?: string | null;
+          step?: UniformStep;
+          fee_due?: boolean;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["uniform_warnings"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "uniform_warnings_child_tenant_fkey";
+            columns: ["child_id", "tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "children";
+            referencedColumns: ["id", "tenant_id"];
+          },
+          {
+            foreignKeyName: "uniform_warnings_location_id_fkey";
+            columns: ["location_id"];
+            isOneToOne: false;
+            referencedRelation: "locations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       incident_reports: {
         Row: {
           id: string;
@@ -1851,6 +1918,8 @@ export interface Database {
       billing_cadence: BillingCadence;
       incident_status: IncidentStatus;
       accident_status: AccidentStatus;
+      uniform_reset: UniformReset;
+      uniform_step: UniformStep;
       parent_notify_method: ParentNotifyMethod;
       sop_audience: SopAudience;
       content_block_type: ContentBlockType;
