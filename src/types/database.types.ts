@@ -33,6 +33,7 @@ export type IncidentStatus = "filed" | "signed" | "parent_notified";
 export type AccidentStatus = "open" | "reviewed" | "closed";
 export type UniformReset = "school_year" | "calendar_year" | "never";
 export type UniformStep = "verbal" | "written" | "fee";
+export type TourStatus = "new" | "contacted" | "toured" | "enrolled" | "not_interested";
 export type ParentNotifyMethod = "phone" | "in_person" | "message";
 export type SopAudience = "all" | "staff" | "site_lead";
 export type ContentBlockType = "video" | "text" | "file";
@@ -1026,6 +1027,52 @@ export interface Database {
           },
         ];
       };
+      tour_requests: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          location_id: string;
+          parent_name: string;
+          phone: string;
+          email: string;
+          child_ages: string;
+          desired_start: string | null;
+          preferred_time: string | null;
+          heard_about: string | null;
+          notes: string | null;
+          status: TourStatus;
+          admin_notes: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          location_id: string;
+          parent_name: string;
+          phone: string;
+          email: string;
+          child_ages: string;
+          desired_start?: string | null;
+          preferred_time?: string | null;
+          heard_about?: string | null;
+          notes?: string | null;
+          status?: TourStatus;
+          admin_notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["tour_requests"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "tour_requests_location_id_fkey";
+            columns: ["location_id"];
+            isOneToOne: false;
+            referencedRelation: "locations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       incident_reports: {
         Row: {
           id: string;
@@ -1920,6 +1967,7 @@ export interface Database {
       accident_status: AccidentStatus;
       uniform_reset: UniformReset;
       uniform_step: UniformStep;
+      tour_status: TourStatus;
       parent_notify_method: ParentNotifyMethod;
       sop_audience: SopAudience;
       content_block_type: ContentBlockType;

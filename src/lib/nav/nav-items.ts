@@ -38,6 +38,7 @@ export function getNavSections(role: AppRole): NavSection[] {
           { title: "Rooms", href: "/rooms", icon: Grid2x2 },
           { title: "Who's here", href: "/attendance/children", icon: DoorOpen },
           { title: "Waitlist", href: "/waitlist", icon: ClipboardList },
+          { title: "Tour requests", href: "/tours", icon: Calendar },
         ],
       },
       {

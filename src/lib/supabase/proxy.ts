@@ -32,6 +32,11 @@ const PUBLIC_PATHS = [
   "/reset-password",
   "/kiosk",
   "/intensive",
+  // Public tour request. Exact prefix must not be "/tour", which would also
+  // make the staff inbox at /tours public. Funnel hosts do not serve this
+  // page: proxy sends any non-funnel path to the portal domain, and this
+  // path is not under /intensive, so the redirect keeps it on the portal.
+  "/schedule-a-tour",
   // Stripe posts here server-to-server with no cookie. Without this the
   // proxy would 307 every payment event to /login and seats would silently
   // never be recorded. Authorized by webhook signature, not by session --
