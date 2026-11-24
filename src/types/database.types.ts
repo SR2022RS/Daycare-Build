@@ -30,6 +30,8 @@ export type FundingType = "private" | "4cs" | "mixed";
 export type ChildSchedule = "full_time" | "part_time";
 export type BillingCadence = "weekly" | "biweekly" | "monthly";
 export type IncidentStatus = "filed" | "signed" | "parent_notified";
+export type AccidentStatus = "open" | "reviewed" | "closed";
+export type ParentNotifyMethod = "phone" | "in_person" | "message";
 export type SopAudience = "all" | "staff" | "site_lead";
 export type ContentBlockType = "video" | "text" | "file";
 export type FormSendStatus = "sent" | "completed" | "expired";
@@ -872,6 +874,87 @@ export interface Database {
             columns: ["invoice_id"];
             isOneToOne: false;
             referencedRelation: "invoices";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      accident_reports: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          location_id: string;
+          child_id: string;
+          filed_by: string;
+          occurred_on: string;
+          occurred_time: string;
+          place: string;
+          what_happened: string;
+          injury_type: string;
+          body_part: string;
+          first_aid: string;
+          staff_present: string;
+          witnesses: string | null;
+          parent_notified: boolean;
+          parent_notified_on: string | null;
+          parent_notified_time: string | null;
+          parent_notify_method: ParentNotifyMethod | null;
+          parent_notified_by: string | null;
+          ool_reportable: boolean;
+          parent_signature_name: string | null;
+          parent_signed_on: string | null;
+          status: AccidentStatus;
+          reviewed_by: string | null;
+          reviewed_at: string | null;
+          closed_by: string | null;
+          closed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          location_id: string;
+          child_id: string;
+          filed_by: string;
+          occurred_on: string;
+          occurred_time: string;
+          place: string;
+          what_happened: string;
+          injury_type: string;
+          body_part: string;
+          first_aid: string;
+          staff_present: string;
+          witnesses?: string | null;
+          parent_notified?: boolean;
+          parent_notified_on?: string | null;
+          parent_notified_time?: string | null;
+          parent_notify_method?: ParentNotifyMethod | null;
+          parent_notified_by?: string | null;
+          ool_reportable?: boolean;
+          parent_signature_name?: string | null;
+          parent_signed_on?: string | null;
+          status?: AccidentStatus;
+          reviewed_by?: string | null;
+          reviewed_at?: string | null;
+          closed_by?: string | null;
+          closed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["accident_reports"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "accident_reports_child_tenant_fkey";
+            columns: ["child_id", "tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "children";
+            referencedColumns: ["id", "tenant_id"];
+          },
+          {
+            foreignKeyName: "accident_reports_location_id_fkey";
+            columns: ["location_id"];
+            isOneToOne: false;
+            referencedRelation: "locations";
             referencedColumns: ["id"];
           },
         ];
@@ -1767,6 +1850,8 @@ export interface Database {
       child_schedule: ChildSchedule;
       billing_cadence: BillingCadence;
       incident_status: IncidentStatus;
+      accident_status: AccidentStatus;
+      parent_notify_method: ParentNotifyMethod;
       sop_audience: SopAudience;
       content_block_type: ContentBlockType;
       kiosk_pin_outcome: KioskPinOutcome;
