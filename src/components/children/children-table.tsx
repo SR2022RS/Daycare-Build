@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 
+import { AllergyBadge, AsthmaBadge } from "@/components/children/health-badges";
 import { age, CHILD_STATUS_LABELS, FUNDING_TYPE_LABELS } from "@/lib/children/labels";
 import type { ChildStatus, FundingType } from "@/types/database.types";
 
@@ -15,6 +16,8 @@ export interface ChildRow {
   fundingType: FundingType;
   weeklyRate: number | null;
   guardianCount: number;
+  hasAllergy: boolean;
+  hasAsthma: boolean;
 }
 
 export function ChildrenTable({ rows, locations }: { rows: ChildRow[]; locations: string[] }) {
@@ -96,7 +99,11 @@ export function ChildrenTable({ rows, locations }: { rows: ChildRow[]; locations
                 .toUpperCase()}
             </span>
             <div className="min-w-0">
-              <div className="truncate text-[13.5px] font-semibold text-gray-900">{r.name}</div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <div className="truncate text-[13.5px] font-semibold text-gray-900">{r.name}</div>
+                {r.hasAllergy && <AllergyBadge />}
+                {r.hasAsthma && <AsthmaBadge />}
+              </div>
               <div className="truncate text-[11.5px] text-gray-400">
                 {r.guardianCount} guardian{r.guardianCount === 1 ? "" : "s"}
               </div>

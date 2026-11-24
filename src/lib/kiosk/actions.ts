@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { requireRole } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
+import { loadHealthAlerts } from "@/lib/children/health-data";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type {
   GuardianIdentity,
@@ -597,7 +598,7 @@ export async function kioskStaffRoster(sessionToken: string): Promise<StaffRoste
     .order("full_name");
 
   if (!children || children.length === 0) {
-    return { ok: true, rooms: [], unassigned: [] };
+    return { ok: true, allergyAlertsLoaded: true, rooms: [], unassigned: [] };
   }
 
   const roomIds = [...new Set(children.map((child) => child.room_id).filter((id): id is string => Boolean(id)))];
@@ -617,15 +618,33 @@ export async function kioskStaffRoster(sessionToken: string): Promise<StaffRoste
   ]);
 
   const presentChildIds = new Set((openVisits ?? []).map((visit) => visit.child_id));
+  const alerts = await loadHealthAlerts(
+    admin,
+    session.tenant_id,
+    children.map((child) => child.id),
+  );
 
-  type RosterChild = { id: string; fullName: string; present: boolean };
+  type RosterChild = {
+    id: string;
+    fullName: string;
+    present: boolean;
+    hasAllergy: boolean;
+    hasAsthma: boolean;
+  };
   const roomsById = new Map<string, { id: string; name: string; children: RosterChild[] }>(
     (rooms ?? []).map((room) => [room.id, { id: room.id, name: room.name, children: [] }]),
   );
   const unassigned: RosterChild[] = [];
 
   for (const child of children) {
-    const entry = { id: child.id, fullName: child.full_name, present: presentChildIds.has(child.id) };
+    const alert = alerts.ok ? alerts.alerts.get(child.id) : undefined;
+    const entry = {
+      id: child.id,
+      fullName: child.full_name,
+      present: presentChildIds.has(child.id),
+      hasAllergy: alert?.hasAllergy ?? false,
+      hasAsthma: alert?.hasAsthma ?? false,
+    };
     const room = child.room_id ? roomsById.get(child.room_id) : undefined;
     if (room) {
       room.children.push(entry);
@@ -634,7 +653,12 @@ export async function kioskStaffRoster(sessionToken: string): Promise<StaffRoste
     }
   }
 
-  return { ok: true, rooms: [...roomsById.values()], unassigned };
+  return {
+    ok: true,
+    allergyAlertsLoaded: alerts.ok,
+    rooms: [...roomsById.values()],
+    unassigned,
+  };
 }
 
 // ── Director-facing kiosk management (authenticated, RLS-enforced) ──────

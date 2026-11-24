@@ -23,7 +23,12 @@ export type GuardianIdentity =
 export type StaffRosterResult =
   | {
       ok: true;
-      rooms: { id: string; name: string; children: { id: string; fullName: string; present: boolean }[] }[];
-      unassigned: { id: string; fullName: string; present: boolean }[];
+      allergyAlertsLoaded: boolean;
+      rooms: {
+        id: string;
+        name: string;
+        children: { id: string; fullName: string; present: boolean; hasAllergy: boolean; hasAsthma: boolean }[];
+      }[];
+      unassigned: { id: string; fullName: string; present: boolean; hasAllergy: boolean; hasAsthma: boolean }[];
     }
   | { ok: false; message: string };

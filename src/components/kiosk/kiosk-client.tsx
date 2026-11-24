@@ -17,6 +17,7 @@ import {
   kioskTransferRoom,
 } from "@/lib/kiosk/actions";
 import type { KioskActionResult, StaffRosterResult } from "@/lib/kiosk/definitions";
+import { AllergyBadge, AsthmaBadge } from "@/components/children/health-badges";
 import { GuardianMenuView, ModeView, type GuardianChild } from "@/components/kiosk/guardian-screens";
 
 const IDLE_RESET_MS = 45_000;
@@ -675,6 +676,11 @@ function StaffRosterView({
 
       {loading && <p className="text-center text-sm text-[#8C857C]">Loading roster…</p>}
       {rosterError && <p className="mb-4 text-sm text-red-400">{rosterError}</p>}
+      {roster && !roster.allergyAlertsLoaded && (
+        <p className="text-[12px] text-amber-200">
+          Allergy alerts could not be loaded. A missing badge does not mean a child has no allergies.
+        </p>
+      )}
       {isEmpty && <p className="mb-4 text-sm text-red-400">No children are enrolled at this location.</p>}
 
       {roster && !isEmpty && (
@@ -727,6 +733,8 @@ function RosterRow({
       <div className="flex items-center gap-2">
         <span className={`h-2 w-2 shrink-0 rounded-full ${child.present ? "bg-emerald-400" : "bg-[#5A554F]"}`} />
         <span className="text-sm text-[#F5F3EE]">{child.fullName}</span>
+        {child.hasAllergy && <AllergyBadge onDark />}
+        {child.hasAsthma && <AsthmaBadge onDark />}
       </div>
       <button
         type="button"
